@@ -157,7 +157,7 @@ private fun PhotosTab(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> viewModel.loadAllPhotos() }
+    ) { _ -> viewModel.ensurePhotos() }
 
     LaunchedEffect(Unit) {
         // 媒体读取 + 通知权限（Android 13+）
@@ -166,7 +166,7 @@ private fun PhotosTab(
             needed += Manifest.permission.POST_NOTIFICATIONS
         }
         if (needed.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-            viewModel.loadAllPhotos()
+            viewModel.ensurePhotos()
         } else {
             permissionLauncher.launch(needed.toTypedArray())
         }
@@ -369,6 +369,9 @@ private fun AlbumsTab(
     val state by viewModel.state.collectAsState()
     var privatePassword by remember { mutableStateOf<RemoteAlbum?>(null) }
     var password by remember { mutableStateOf("") }
+
+    // 切到相册 tab：有内存缓存直接显示，不发网络
+    LaunchedEffect(Unit) { viewModel.ensureAlbums() }
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Text("云端相册 · 按名称排序", style = MaterialTheme.typography.titleMedium)

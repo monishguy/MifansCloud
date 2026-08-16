@@ -3,7 +3,9 @@ package com.monishguy.mifanscloud.ui.contact
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.monishguy.mifanscloud.data.local.DownloadNotifier
 import com.monishguy.mifanscloud.data.local.SafHelper
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -71,15 +73,29 @@ fun ContactsScreen(
     }
 
     // 导入本机通讯录：先申请 WRITE_CONTACTS，授权后执行导入
+    fun startImport() {
+        val notifId = DownloadNotifier.start(context, "通讯录导入", "正在导入…")
+        viewModel.importToDevice(context) { count, error ->
+            val msg = error ?: "已导入 $count 位联系人到本机通讯录"
+            importHint = msg
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            DownloadNotifier.finish(
+                context, notifId,
+                if (error != null) "通讯录导入失败" else "通讯录导入完成", msg,
+                success = error == null,
+            )
+        }
+    }
+
     val writeContactsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            viewModel.importToDevice(context) { count, error ->
-                importHint = error ?: "已导入 $count 位联系人到本机通讯录"
-            }
+            startImport()
         } else {
-            importHint = "未授予通讯录写入权限，无法导入"
+            val msg = "未授予通讯录写入权限，无法导入"
+            importHint = msg
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -109,9 +125,7 @@ fun ContactsScreen(
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) ==
                         PackageManager.PERMISSION_GRANTED
                     ) {
-                        viewModel.importToDevice(context) { count, error ->
-                            importHint = error ?: "已导入 $count 位联系人到本机通讯录"
-                        }
+                        startImport()
                     } else {
                         writeContactsLauncher.launch(Manifest.permission.WRITE_CONTACTS)
                     }

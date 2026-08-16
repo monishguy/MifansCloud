@@ -14,6 +14,7 @@ import com.monishguy.mifanscloud.data.sync.LocalMediaSource
 import com.monishguy.mifanscloud.data.sync.MatchStatus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -95,12 +96,47 @@ class GalleryViewModel(
     @Volatile
     private var loadedGeneration: Int? = null
 
+    /** tab 级内存缓存：切「照片/相册」tab 不重复网络加载、页面不闪。 */
+    private var albumsCache: List<RemoteAlbum>? = null
+    private var photosCache: List<AssetRow>? = null
+    private val albumAssetsCache = mutableMapOf<String, List<AssetRow>>()
+
     /** 首次进入（或凭证清除后）才加载，其余复用缓存。 */
     fun loadOnce() {
         val generation = cacheVersion()
         if (loadedGeneration == generation) return
         loadedGeneration = generation
         loadAlbums()
+    }
+
+    /** 相册 tab：有内存缓存直接显示，不发网络。 */
+    fun ensureAlbums() {
+        val cached = albumsCache
+        if (cached != null) {
+            _state.value = GalleryUiState.Albums(cached)
+            return
+        }
+        loadAlbums()
+    }
+
+    /** 照片 tab：有内存缓存直接显示，不发网络。 */
+    fun ensurePhotos() {
+        val cached = photosCache
+        if (cached != null) {
+            _state.value = GalleryUiState.Photos(cached, loading = false)
+            return
+        }
+        loadAllPhotos()
+    }
+
+    /** 相册内页：有内存缓存直接显示；首次进入网络拉取。 */
+    fun ensureAlbum(album: RemoteAlbum) {
+        val cached = albumAssetsCache[album.albumId]
+        if (cached != null) {
+            _state.value = GalleryUiState.AlbumAssets(album, cached, loading = false)
+            return
+        }
+        loadAlbum(album)
     }
 
     /** 拉取相册列表：本地缓存秒开 → 网络刷新 → 写缓存。 */
@@ -118,6 +154,7 @@ class GalleryViewModel(
                 runCatching { galleryApi.fetchAlbums().sortedWith(ALBUM_NAME_ORDER) }
             }
             fresh.onSuccess { albums ->
+                albumsCache = albums
                 _state.value = GalleryUiState.Albums(albums)
                 withContext(ioDispatcher) { metadataCache?.saveAlbums(albums) }
             }
@@ -133,8 +170,8 @@ class GalleryViewModel(
 
     /**
      * 拉取全部照片：合并各普通相册资产，按 dateTaken 新旧降序。
-     * 单个相册拉取失败（503/无 data）跳过并计数 [GalleryUiState.Photos.failedAlbums]；
-     * 全部失败时回退持久化缓存。
+     * 单个相册拉取失败自动重试 3 次（503 限流常见），相册间 400ms 节流；
+     * 仍失败的跳过并计数 [GalleryUiState.Photos.failedAlbums]；全部失败回退持久化缓存。
      */
     fun loadAllPhotos() {
         viewModelScope.launch {
@@ -146,8 +183,9 @@ class GalleryViewModel(
                         .filter { it.albumId.isNotBlank() }
                     var failed = 0
                     val all = mutableListOf<RemoteAsset>()
-                    albums.forEach { album ->
-                        runCatching { galleryApi.fetchAssets(album.albumId) }
+                    albums.forEachIndexed { index, album ->
+                        if (index > 0) delay(400) // 相册间节流，防触发云端限流
+                        runCatching { fetchAssetsWithRetry(album.albumId) }
                             .onSuccess { all += it }
                             .onFailure { failed++ }
                     }
@@ -156,6 +194,7 @@ class GalleryViewModel(
             }
             result.fold(
                 onSuccess = { (rows, failed, allAssets) ->
+                    photosCache = rows
                     _state.value = GalleryUiState.Photos(rows, loading = false, failedAlbums = failed)
                     withContext(ioDispatcher) {
                         metadataCache?.saveAllPhotos(allAssets)
@@ -164,15 +203,29 @@ class GalleryViewModel(
                 onFailure = { error ->
                     val cached = withContext(ioDispatcher) { metadataCache?.loadAllPhotos() }
                     if (cached != null) {
-                        _state.value = GalleryUiState.Photos(
-                            matchRows(cached), loading = false, stale = true,
-                        )
+                        val rows = matchRows(cached)
+                        photosCache = rows
+                        _state.value = GalleryUiState.Photos(rows, loading = false, stale = true)
                     } else {
                         _state.value = GalleryUiState.Error(error.message ?: "拉取照片失败")
                     }
                 },
             )
         }
+    }
+
+    /** 单相册资产拉取带重试（503 限流时退避重试）。 */
+    private suspend fun fetchAssetsWithRetry(albumId: String): List<RemoteAsset> {
+        var lastError: Throwable? = null
+        repeat(3) { attempt ->
+            try {
+                return galleryApi.fetchAssets(albumId)
+            } catch (e: Throwable) {
+                lastError = e
+                if (attempt < 2) delay(1_500L * (attempt + 1))
+            }
+        }
+        throw lastError ?: IllegalStateException("拉取相册 $albumId 失败")
     }
 
     /**
@@ -187,14 +240,18 @@ class GalleryViewModel(
             }
             result.fold(
                 onSuccess = { assets ->
-                    _state.value = GalleryUiState.AlbumAssets(album, matchRows(assets), loading = false)
+                    val rows = matchRows(assets)
+                    albumAssetsCache[album.albumId] = rows
+                    _state.value = GalleryUiState.AlbumAssets(album, rows, loading = false)
                     withContext(ioDispatcher) { metadataCache?.saveAssets(album.albumId, assets) }
                 },
                 onFailure = { error ->
                     val cached = withContext(ioDispatcher) { metadataCache?.loadAssets(album.albumId) }
                     if (cached != null) {
+                        val rows = matchRows(cached)
+                        albumAssetsCache[album.albumId] = rows
                         _state.value = GalleryUiState.AlbumAssets(
-                            album, matchRows(cached), loading = false, stale = true,
+                            album, rows, loading = false, stale = true,
                         )
                     } else {
                         _state.value = GalleryUiState.Error(error.message ?: "拉取资产失败")
@@ -245,7 +302,7 @@ class GalleryViewModel(
 
     /**
      * 按需下载单张原图：签名直链流式写入 [outputProvider] 提供的输出流；
-     * 成功后记录到 [DownloadedStore] 并刷新当前状态。
+     * 成功后记录到 [DownloadedStore]，**仅局部更新该行徽标（不整页刷新）**。
      */
     fun downloadAsset(asset: RemoteAsset, outputProvider: () -> OutputStream, onCompleted: () -> Unit) {
         viewModelScope.launch {
@@ -258,15 +315,17 @@ class GalleryViewModel(
             if (ok) {
                 downloadedStore.add(GALLERY_NS, asset.id, asset.fileName)
             }
-            updateRow(asset.id) { it.copy(downloading = false) }
+            updateRow(asset.id) {
+                it.copy(downloading = false, status = if (ok) MatchStatus.DOWNLOADED else it.status)
+            }
             onCompleted()
-            refreshCurrent()
         }
     }
 
     /**
      * 批量顺序下载（长按多选后调用）：按传入顺序逐个下载，
-     * 逐个汇报进度 [onProgress]（done/total），全部结束后 [onCompleted] 并刷新。
+     * 逐个汇报进度 [onProgress]（done/total），全部结束后 [onCompleted]；
+     * 每张下载完成**仅局部更新徽标**，不重新拉取列表（避免整页刷新）。
      * [outputProvider] 返回 null 表示该文件无法创建（跳过，不算失败）。
      */
     fun downloadAssets(
@@ -284,11 +343,12 @@ class GalleryViewModel(
                         .getOrDefault(false)
                 }
                 if (ok) downloadedStore.add(GALLERY_NS, asset.id, asset.fileName)
-                updateRow(asset.id) { it.copy(downloading = false) }
+                updateRow(asset.id) {
+                    it.copy(downloading = false, status = if (ok) MatchStatus.DOWNLOADED else it.status)
+                }
                 onProgress(index + 1, assets.size)
             }
             onCompleted()
-            refreshCurrent()
         }
     }
 
@@ -300,25 +360,25 @@ class GalleryViewModel(
             .sortedWith(NEWEST_FIRST)
     }
 
-    /** 刷新当前状态（相册内 / 全部照片），供下载后更新徽标。 */
-    private fun refreshCurrent() {
-        when (val current = _state.value) {
-            is GalleryUiState.AlbumAssets -> loadAlbum(current.album)
-            is GalleryUiState.Photos -> loadAllPhotos()
-            else -> Unit
-        }
-    }
-
+    /** 局部更新行状态并同步到内存缓存（下载后徽标立即变化，无整页刷新）。 */
     private fun updateRow(assetId: String, transform: (AssetRow) -> AssetRow) {
         val current = _state.value
         _state.value = when (current) {
-            is GalleryUiState.AlbumAssets -> current.copy(
-                assets = current.assets.map { if (it.asset.id == assetId) transform(it) else it },
-            )
+            is GalleryUiState.AlbumAssets -> {
+                val updated = current.copy(
+                    assets = current.assets.map { if (it.asset.id == assetId) transform(it) else it },
+                )
+                albumAssetsCache[current.album.albumId] = updated.assets
+                updated
+            }
 
-            is GalleryUiState.Photos -> current.copy(
-                assets = current.assets.map { if (it.asset.id == assetId) transform(it) else it },
-            )
+            is GalleryUiState.Photos -> {
+                val updated = current.copy(
+                    assets = current.assets.map { if (it.asset.id == assetId) transform(it) else it },
+                )
+                photosCache = updated.assets
+                updated
+            }
 
             else -> current
         }

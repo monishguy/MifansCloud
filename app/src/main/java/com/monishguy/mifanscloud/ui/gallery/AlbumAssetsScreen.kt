@@ -83,12 +83,12 @@ fun AlbumAssetsScreen(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> viewModel.loadAlbum(album) }
+    ) { _ -> viewModel.ensureAlbum(album) }
 
     LaunchedEffect(Unit) {
         val needed = mediaPermissions()
         if (needed.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-            viewModel.loadAlbum(album)
+            viewModel.ensureAlbum(album)
         } else {
             permissionLauncher.launch(needed)
         }
