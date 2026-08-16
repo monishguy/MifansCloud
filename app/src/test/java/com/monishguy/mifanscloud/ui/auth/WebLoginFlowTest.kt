@@ -24,6 +24,14 @@ class WebLoginFlowTest {
     }
 
     @Test
+    fun `游客会话仅 userId 不视为已登录（i_mi_com 会给游客下发 userId）`() {
+        assertEquals(
+            WebLoginFlow.Decision.KeepWaiting,
+            WebLoginFlow.decide("userId=42; deviceId=wb_x; locale=zh_CN", galleryVisited = false),
+        )
+    }
+
+    @Test
     fun `已登录但缺 passToken 时跳转相册页触发设备验证`() {
         assertEquals(
             WebLoginFlow.Decision.NavigateToGallery,

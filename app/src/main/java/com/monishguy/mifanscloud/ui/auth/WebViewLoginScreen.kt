@@ -1,7 +1,12 @@
 package com.monishguy.mifanscloud.ui.auth
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.util.Log
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -118,20 +123,37 @@ fun WebViewLoginScreen(
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         CookieManager.getInstance().setAcceptCookie(true)
-                        webViewClient = object : WebViewClient() {
+                        webViewClient = object : WebViewClient() {                            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                                Log.d(TAG, "onPageStarted: $url")
+                                progress = 0
+                                error = null
+                            }
+
                             override fun onPageFinished(view: WebView, url: String?) {
                                 progress = 100
+                                val raw = CookieManager.getInstance().getCookie(WebLoginFlow.HOME_URL)
+                                Log.d(TAG, "onPageFinished: $url | cookieKeys=${cookieKeys(raw)}")
                                 inspectAndDecide()
                             }
 
-                            @Deprecated("Deprecated in API level 24")
                             override fun onReceivedError(
                                 view: WebView,
-                                errorCode: Int,
-                                description: String,
-                                failingUrl: String?,
+                                request: WebResourceRequest,
+                                err: WebResourceError,
                             ) {
-                                error = description
+                                Log.e(
+                                    TAG,
+                                    "onReceivedError: ${err.errorCode} ${err.description} " +
+                                        "url=${request.url} mainFrame=${request.isForMainFrame}",
+                                )
+                                if (request.isForMainFrame) {
+                                    error = err.description.toString()
+                                }
+                            }
+                        }
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                                progress = newProgress
                             }
                         }
                         loadUrl(WebLoginFlow.HOME_URL)
@@ -158,9 +180,20 @@ fun WebViewLoginScreen(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
+            OutlinedButton(onClick = { webView?.reload() }) { Text("刷新页面") }
             Button(onClick = { inspectAndDecide() }) { Text("我已完成登录，继续") }
         }
     }
 }
+
+private const val TAG = "MifansWebLogin"
+
+/** 只记录 Cookie 的键名（绝不记录值，避免泄露 passToken/serviceToken）。 */
+private fun cookieKeys(raw: String?): String =
+    raw?.split(';')
+        ?.mapNotNull { part -> part.substringBefore('=').trim().takeIf { it.isNotEmpty() } }
+        ?.distinct()
+        ?.joinToString(",")
+        ?: "null"
