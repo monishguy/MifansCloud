@@ -8,9 +8,12 @@ import com.monishguy.mifanscloud.data.auth.CredentialStore
 import com.monishguy.mifanscloud.data.auth.SecureCredentialStore
 import com.monishguy.mifanscloud.data.auth.XiaomiAuthService
 import com.monishguy.mifanscloud.data.auth.XiaomiCredential
+import com.monishguy.mifanscloud.data.contact.ContactApi
 import com.monishguy.mifanscloud.data.gallery.GalleryApi
+import com.monishguy.mifanscloud.data.note.NoteApi
 import com.monishguy.mifanscloud.data.recording.RecordingApi
 import com.monishguy.mifanscloud.data.remote.XiaomiApiClient
+import com.monishguy.mifanscloud.data.sms.SmsApi
 import com.monishguy.mifanscloud.data.sync.DownloadedStore
 import com.monishguy.mifanscloud.data.sync.LocalMediaSource
 import com.monishguy.mifanscloud.data.sync.MediaStoreLocalMediaSource
@@ -76,6 +79,12 @@ class AppContainer(context: Context) {
         apiClient = apiClient,
         baseUrl = BASE_URL,
     )
+
+    val contactApi: ContactApi = ContactApi(apiClient, BASE_URL)
+
+    val noteApi: NoteApi = NoteApi(apiClient, BASE_URL)
+
+    val smsApi: SmsApi = SmsApi(apiClient, BASE_URL)
 
     val localMediaSource: LocalMediaSource = MediaStoreLocalMediaSource(appContext)
 
