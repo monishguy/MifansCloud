@@ -98,9 +98,9 @@ app/
 - [x] **M2 认证闭环**：凭证配置（粘贴 Cookie/手动）、Keystore 加密存储、serviceToken 10 分钟刷新、401 重发、Compose 登录/状态页 ✅ 已交付（2026-08）
 - [x] **M2.1 WebView 内嵌登录**：内嵌浏览器登录 i.mi.com，自动检测登录态、跳相册页触发设备验证、提取 Cookie ✅ 已交付（真机验证；该 ROM WebView 白屏为渲染问题，手动粘贴路径不受影响）
 - [x] **M2.2 serviceToken 直连模式**：无 passToken 的已登录 Cookie 直接可用（跳过换取链）✅ 已交付（真机端到端验证通过）
-- [x] **M3 相册智能同步**：纯缩略图浏览（清单自带 URL/base64 缩略图）、本机两级匹配（dateTaken+size / sha1）、徽标区分「本机已有/云端新增/已下载」、按需下载原图到 SAF 备份文件夹 ✅ 已交付（57 单元测试全绿）
-- [ ] **M4 录音下载**：录音列表 → 下载 + 文件名解析
-- [ ] **M5 通讯录 / 笔记 / 短信**：清单拉取 + 本地存储（JSON/文件导出）
+- [x] **M3 相册智能同步**：纯缩略图浏览（清单自带 URL/base64 缩略图）、本机两级匹配（dateTaken+size / sha1）、徽标区分「本机已有/云端新增/已下载」、按需下载原图到 SAF 备份文件夹 ✅ 已交付（69 单元测试全绿）
+- [x] **M4 录音同步**：列表（offset/limit 分页）+ 编码文件名还原（类型码：录音机/通话/FM/应用）+ 按需下载 ✅ 已交付
+- [x] **M5 通讯录 / 笔记 / 短信**：清单拉取（syncTag 增量）+ JSON 导出到备份文件夹 ✅ 已交付
 - [ ] **M6 上传方向**：抓包逆向上传接口（相册上传、笔记同步）
 - [ ] **M7 定时同步**：WorkManager + 前台服务（Android 12+ 限制）
 - [ ] **M8 双向冲突处理 / 删除同步**（按需）
@@ -108,11 +108,11 @@ app/
 ## 构建与测试
 
 ```bash
-./gradlew :app:testDebugUnitTest   # 单元测试（57 个，MockWebServer 模拟小米接口）
+./gradlew :app:testDebugUnitTest   # 单元测试（69 个，MockWebServer 模拟小米接口）
 ./gradlew :app:assembleDebug       # 编译 debug APK
 ```
 
-认证与相册逻辑全部经本地 mock 验证（不依赖真实账号）；真机安装后由用户填入自己的 i.mi.com Cookie 做端到端验证（已通过：粘贴 Cookie → 主页 → 相册浏览）。
+认证与全部数据模块逻辑均经本地 mock 验证（不依赖真实账号）；真机安装后由用户填入自己的 i.mi.com Cookie 做端到端验证（已通过：粘贴 Cookie → 主页 → 相册浏览/下载）。
 
 ---
 
