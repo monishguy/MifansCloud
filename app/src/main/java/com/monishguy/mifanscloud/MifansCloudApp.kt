@@ -2,31 +2,62 @@ package com.monishguy.mifanscloud
 
 import android.app.Application
 import android.content.Context
+import coil.Coil
+import coil.ImageLoader
 import com.monishguy.mifanscloud.data.auth.CredentialStore
 import com.monishguy.mifanscloud.data.auth.SecureCredentialStore
 import com.monishguy.mifanscloud.data.auth.XiaomiAuthService
+import com.monishguy.mifanscloud.data.auth.XiaomiCredential
+import com.monishguy.mifanscloud.data.gallery.GalleryApi
 import com.monishguy.mifanscloud.data.remote.XiaomiApiClient
+import com.monishguy.mifanscloud.data.sync.DownloadedStore
+import com.monishguy.mifanscloud.data.sync.LocalMediaSource
+import com.monishguy.mifanscloud.data.sync.MediaStoreLocalMediaSource
 import okhttp3.OkHttpClient
+import java.io.File
 
 /**
- * 手动依赖装配容器（M2 阶段不引入 DI 框架）。
+ * 手动依赖装配容器。
+ *
  * 关键网络约定：全局关闭重定向跟随（签名直链 / 登录链均依赖手动处理 302）。
+ * 图片客户端独立于业务客户端：只为缩略图 URL 注入认证 cookie
+ * （仅直连会话可注入，passToken 会话不注入以免换取链被污染）。
  */
 class AppContainer(context: Context) {
 
+    private val appContext = context.applicationContext
+
+    val credentialStore: CredentialStore = SecureCredentialStore(appContext)
+
+    /** 业务请求客户端（认证换取链 / 数据接口）：不注入 cookie 拦截器。 */
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
 
-    val credentialStore: CredentialStore = SecureCredentialStore(context)
+    /** 图片客户端：为 mi.com 域缩略图 URL 注入直连会话 cookie。 */
+    private val imageOkHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val builder = request.newBuilder().header("User-Agent", XiaomiAuthService.UA)
+            if (request.url.host.endsWith(MI_COM_HOST)) {
+                val credential = credentialStore.load()
+                val token = (credential as? XiaomiCredential.ServiceToken)?.serviceToken
+                if (token != null) {
+                    builder.header("Cookie", "userId=${credential.userId}; serviceToken=$token;")
+                }
+            }
+            chain.proceed(builder.build())
+        }
+        .build()
 
     val authService: XiaomiAuthService = XiaomiAuthService(
         client = okHttpClient,
         baseUrl = BASE_URL,
     )
 
-    /** M3 起各数据模块（相册/录音/笔记/通讯录/短信）统一经此客户端访问。 */
+    /** 各数据模块（相册/录音/笔记/通讯录/短信）统一经此客户端访问。 */
     val apiClient: XiaomiApiClient = XiaomiApiClient(
         client = okHttpClient,
         auth = authService,
@@ -35,9 +66,30 @@ class AppContainer(context: Context) {
         },
     )
 
+    val galleryApi: GalleryApi = GalleryApi(
+        apiClient = apiClient,
+        baseUrl = BASE_URL,
+    )
+
+    val localMediaSource: LocalMediaSource = MediaStoreLocalMediaSource(appContext)
+
+    val downloadedStore: DownloadedStore = DownloadedStore(
+        File(appContext.filesDir, DOWNLOADED_FILE),
+    )
+
+    /** 缩略图加载器（Coil），由 Application 设为默认。 */
+    val imageLoader: ImageLoader by lazy {
+        ImageLoader.Builder(appContext)
+            .okHttpClient(imageOkHttpClient)
+            .build()
+    }
+
     companion object {
         /** 中国区小米云 Web 端（Global 区域暂不支持）。 */
         const val BASE_URL = "https://i.mi.com"
+
+        private const val MI_COM_HOST = "mi.com"
+        private const val DOWNLOADED_FILE = "downloaded.json"
     }
 }
 
@@ -49,5 +101,6 @@ class MifansCloudApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        Coil.setImageLoader(container.imageLoader)
     }
 }

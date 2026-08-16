@@ -105,7 +105,8 @@ fun HomeScreen(
                 Text("数据模块", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "相册 / 录音 / 通讯录 / 笔记 / 短信 同步将在后续里程碑开放（M3 起）。",
+                    "相册已开放：点底部「相册」标签浏览云端缩略图、区分本机已有并按需下载。" +
+                        "录音 / 通讯录 / 笔记 / 短信 同步将在后续里程碑开放。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

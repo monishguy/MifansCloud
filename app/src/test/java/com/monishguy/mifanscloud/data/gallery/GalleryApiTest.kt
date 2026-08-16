@@ -169,19 +169,18 @@ class GalleryApiTest {
     }
 
     @Test
-    fun `下载走三步签名直链并写文件`() {
+    fun `下载走三步签名直链并写入输出流`() {
         server.enqueue(MockResponse().setBody("""{"code":0,"data":{"url":"${server.url("/oss")}"}}"""))
         server.enqueue(MockResponse().setBody("""dl_callback({"url":"${server.url("/dl")}","meta":"m9"})"""))
         server.enqueue(MockResponse().setBody("JPEG-BYTES"))
 
-        val target = File.createTempFile("gallery-download", ".jpg")
-        val ok = api.download(assetId = "9001", target = target)
+        val sink = java.io.ByteArrayOutputStream()
+        val ok = api.download(assetId = "9001", target = sink)
 
         assertTrue(ok)
-        assertEquals("JPEG-BYTES", target.readText())
-        target.delete()
+        assertEquals("JPEG-BYTES", sink.toString("UTF-8"))
 
-        val download = server.takeRequest() // storage
+        server.takeRequest() // storage
         val jsonp = server.takeRequest()    // JSONP
         val post = server.takeRequest()     // 最终下载 POST
         assertEquals("/dl", post.path?.substringBefore("?"))

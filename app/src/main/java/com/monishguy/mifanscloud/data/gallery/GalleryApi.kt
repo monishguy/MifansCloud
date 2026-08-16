@@ -7,7 +7,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.json.JSONObject
-import java.io.File
+import java.io.OutputStream
 
 /**
  * 小米云相册 API（i.mi.com 的 gallery 路径族）。
@@ -135,8 +135,11 @@ class GalleryApi(
         }
     }
 
-    /** 下载原图到 [target]（签名直链三步流），返回是否成功（false=云端已删除跳过）。 */
-    fun download(assetId: String, target: File): Boolean {
+    /**
+     * 下载原图到 [target]（签名直链三步流），返回是否成功（false=云端已删除跳过）。
+     * 流式输出到任意 [OutputStream]（文件 / SAF / 测试内存流），由调用方关闭。
+     */
+    fun download(assetId: String, target: OutputStream): Boolean {
         val spec = try {
             resolveDownload(assetId)
         } catch (e: MediaDeletedException) {
@@ -148,9 +151,7 @@ class GalleryApi(
             if (!r.isSuccessful) throw IllegalStateException("下载失败 HTTP ${r.code}")
             val stream = r.body?.byteStream()
                 ?: throw IllegalStateException("下载响应为空")
-            stream.use { input ->
-                target.outputStream().use { output -> input.copyTo(output, BUFFER_SIZE) }
-            }
+            stream.use { input -> input.copyTo(target, BUFFER_SIZE) }
         }
         return true
     }
