@@ -1,0 +1,20 @@
+XiaomiAlbumSyncer：这个项目专门用于下载小米云服务中的相册和录音。它是一个功能完整的工具，支持增量下载、定时任务、Web UI 管理等多种功能，可以为你实现“相册/录音导入导出”功能提供非常具体的参考，包括如何登录、如何刷新Cookie、如何处理数据等。
+https://github.com/Coooolfan/XiaomiAlbumSyncer#1
+
+mi-service-lite：这是一个非官方的 Node.js 客户端库，用于访问小米云服务。它的核心价值在于，通过代码示例展示了如何通过编程方式调用小米云的底层接口，是学习如何与小米云“对话”的绝佳材料。
+https://www.npmjs.com/package/mi-service-lite?activeTab=versions
+
+MiCloud (Go语言)：这是一个用 Go 语言编写的小米云服务 API 封装库。和 mi-service-lite 类似，它也能为你提供实现思路，特别是如果你更熟悉 Go 语言。
+https://github.com/CLOUDERHEM/MiCloud
+
+---
+XiaomiAlbumSyncer 这个项目尤其值得你深入研究和借鉴
+---
+这是一个安卓软件项目，我需要开发：
+针对于i.mi.com小米云服务在其他没有MIsdk的安卓设备的备份同步工具（注：该网站需要登录并获取保存cookie才能进入备份获取页面）。其中包括但不限于：
+-相册
+-通讯录
+-笔记
+-录音
+-...
+你不需要一次开发完毕，但需要了解清楚关于这些项的API的调用以上传、下载云端信息。
