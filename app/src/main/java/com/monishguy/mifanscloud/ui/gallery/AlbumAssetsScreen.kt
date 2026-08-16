@@ -50,6 +50,7 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.monishguy.mifanscloud.data.gallery.RemoteAlbum
 import com.monishguy.mifanscloud.data.gallery.RemoteAsset
+import com.monishguy.mifanscloud.data.local.SaveSection
 import com.monishguy.mifanscloud.data.sync.MatchStatus
 
 /**
@@ -62,13 +63,13 @@ import com.monishguy.mifanscloud.data.sync.MatchStatus
 fun AlbumAssetsScreen(
     viewModel: GalleryViewModel,
     album: RemoteAlbum,
+    saveDirStore: com.monishguy.mifanscloud.data.local.SaveDirStore,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val contentResolver = context.contentResolver
-    val prefs = remember { context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE) }
-    var treeUri by remember { mutableStateOf(prefs.getString(KEY_TREE_URI, null)) }
+    var treeUri by remember { mutableStateOf(saveDirStore.get(SaveSection.ALBUM)) }
     var folderError by remember { mutableStateOf<String?>(null) }
 
     val pickFolder = rememberLauncherForActivityResult(
@@ -80,7 +81,7 @@ fun AlbumAssetsScreen(
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 )
-                prefs.edit().putString(KEY_TREE_URI, uri.toString()).apply()
+                saveDirStore.set(SaveSection.ALBUM, uri.toString())
                 treeUri = uri.toString()
                 folderError = null
             }.onFailure { folderError = it.message }
@@ -265,6 +266,3 @@ private fun createDocument(
 
 private fun sanitizeFileName(name: String): String =
     name.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_")
-
-private const val PREFS_NAME = "mifans_prefs"
-private const val KEY_TREE_URI = "backup_tree_uri"

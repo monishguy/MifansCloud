@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -23,25 +25,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Menu
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.monishguy.mifanscloud.data.gallery.RemoteAlbum
+import com.monishguy.mifanscloud.data.local.SaveDirStore
 import com.monishguy.mifanscloud.ui.auth.AuthUiState
 import com.monishguy.mifanscloud.ui.auth.AuthViewModel
 import com.monishguy.mifanscloud.ui.auth.LoginScreen
-import com.monishguy.mifanscloud.ui.data.DataScreen
-import com.monishguy.mifanscloud.ui.data.DataViewModel
+import com.monishguy.mifanscloud.ui.contact.ContactsScreen
+import com.monishguy.mifanscloud.ui.contact.ContactsViewModel
 import com.monishguy.mifanscloud.ui.gallery.AlbumAssetsScreen
 import com.monishguy.mifanscloud.ui.gallery.AlbumsScreen
 import com.monishguy.mifanscloud.ui.gallery.GalleryViewModel
-import com.monishguy.mifanscloud.ui.home.HomeScreen
+import com.monishguy.mifanscloud.ui.note.NotesScreen
+import com.monishguy.mifanscloud.ui.note.NotesViewModel
 import com.monishguy.mifanscloud.ui.recording.RecordingsScreen
 import com.monishguy.mifanscloud.ui.recording.RecordingsViewModel
+import com.monishguy.mifanscloud.ui.settings.SettingsScreen
+import com.monishguy.mifanscloud.ui.welcome.Section
+import com.monishguy.mifanscloud.ui.welcome.WelcomeScreen
 import com.monishguy.mifanscloud.ui.theme.米饭云服务Theme
 
 class MainActivity : ComponentActivity() {
@@ -63,13 +64,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 顶层页面栈：主页 / 相册列表 / 相册内资产 / 录音 / 数据。 */
+/** 顶层页面栈：欢迎 / 设置 / 各板块（全屏 + 返回）。 */
 private sealed interface Screen {
-    data object Home : Screen
-    data object Albums : Screen
+    data object Welcome : Screen
+    data object Settings : Screen
+    data object AlbumSection : Screen
     data class AlbumAssets(val album: RemoteAlbum) : Screen
-    data object Recordings : Screen
-    data object Data : Screen
+    data object RecordingSection : Screen
+    data object ContactSection : Screen
+    data object NoteSection : Screen
 }
 
 @Composable
@@ -80,60 +83,97 @@ private fun MainScaffold(
 ) {
     val galleryViewModel: GalleryViewModel = viewModel(factory = GalleryViewModel.Factory(container))
     val recordingsViewModel: RecordingsViewModel = viewModel(factory = RecordingsViewModel.Factory(container))
-    val dataViewModel: DataViewModel = viewModel(factory = DataViewModel.Factory(container))
-    var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+    val contactsViewModel: ContactsViewModel = viewModel(factory = ContactsViewModel.Factory(container))
+    val notesViewModel: NotesViewModel = viewModel(factory = NotesViewModel.Factory(container))
+    var screen by remember { mutableStateOf<Screen>(Screen.Welcome) }
 
-    val assets = screen as? Screen.AlbumAssets
-    if (assets != null) {
-        BackHandler { screen = Screen.Albums }
-        AlbumAssetsScreen(
-            viewModel = galleryViewModel,
-            album = assets.album,
-            onBack = { screen = Screen.Albums },
-        )
-        return
+    // 全屏板块页（无底栏）
+    when (val s = screen) {
+        is Screen.AlbumAssets -> {
+            BackHandler { screen = Screen.AlbumSection }
+            AlbumAssetsScreen(
+                viewModel = galleryViewModel,
+                album = s.album,
+                saveDirStore = container.saveDirStore,
+                onBack = { screen = Screen.AlbumSection },
+            )
+            return
+        }
+        Screen.AlbumSection -> {
+            BackHandler { screen = Screen.Welcome }
+            AlbumsScreen(
+                viewModel = galleryViewModel,
+                onBack = { screen = Screen.Welcome },
+                onOpenAlbum = { album -> screen = Screen.AlbumAssets(album) },
+            )
+            return
+        }
+        Screen.RecordingSection -> {
+            BackHandler { screen = Screen.Welcome }
+            RecordingsScreen(
+                viewModel = recordingsViewModel,
+                saveDirStore = container.saveDirStore,
+                onBack = { screen = Screen.Welcome },
+            )
+            return
+        }
+        Screen.ContactSection -> {
+            BackHandler { screen = Screen.Welcome }
+            ContactsScreen(
+                viewModel = contactsViewModel,
+                saveDirStore = container.saveDirStore,
+                onBack = { screen = Screen.Welcome },
+            )
+            return
+        }
+        Screen.NoteSection -> {
+            BackHandler { screen = Screen.Welcome }
+            NotesScreen(
+                viewModel = notesViewModel,
+                saveDirStore = container.saveDirStore,
+                onBack = { screen = Screen.Welcome },
+            )
+            return
+        }
+        else -> Unit
     }
 
     Scaffold(
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
-                    selected = screen == Screen.Home,
-                    onClick = { screen = Screen.Home },
-                    icon = { Icon(Icons.Filled.Home, contentDescription = "主页") },
-                    label = { Text("主页") },
+                    selected = screen == Screen.Welcome,
+                    onClick = { screen = Screen.Welcome },
+                    icon = { Icon(Icons.Filled.Home, contentDescription = "欢迎") },
+                    label = { Text("欢迎") },
                 )
                 NavigationBarItem(
-                    selected = screen == Screen.Albums,
-                    onClick = { screen = Screen.Albums },
-                    icon = { Icon(Icons.Filled.List, contentDescription = "相册") },
-                    label = { Text("相册") },
-                )
-                NavigationBarItem(
-                    selected = screen == Screen.Recordings,
-                    onClick = { screen = Screen.Recordings },
-                    icon = { Icon(Icons.Filled.Call, contentDescription = "录音") },
-                    label = { Text("录音") },
-                )
-                NavigationBarItem(
-                    selected = screen == Screen.Data,
-                    onClick = { screen = Screen.Data },
-                    icon = { Icon(Icons.Filled.Menu, contentDescription = "数据") },
-                    label = { Text("数据") },
+                    selected = screen == Screen.Settings,
+                    onClick = { screen = Screen.Settings },
+                    icon = { Icon(Icons.Filled.Settings, contentDescription = "设置") },
+                    label = { Text("设置") },
                 )
             }
         },
     ) { innerPadding ->
         Box(Modifier.fillMaxSize().padding(innerPadding)) {
             when (screen) {
-                Screen.Home -> HomeScreen(authViewModel, ready)
-                Screen.Albums -> AlbumsScreen(
-                    viewModel = galleryViewModel,
-                    onOpenAlbum = { album -> screen = Screen.AlbumAssets(album) },
+                Screen.Welcome -> WelcomeScreen(
+                    onOpenSection = { section ->
+                        screen = when (section) {
+                            Section.ALBUM -> Screen.AlbumSection
+                            Section.RECORDING -> Screen.RecordingSection
+                            Section.CONTACT -> Screen.ContactSection
+                            Section.NOTE -> Screen.NoteSection
+                        }
+                    },
                 )
-                Screen.Recordings -> RecordingsScreen(viewModel = recordingsViewModel)
-                Screen.Data -> DataScreen(viewModel = dataViewModel)
-                is Screen.AlbumAssets -> Unit // 上面已单独处理
+                Screen.Settings -> SettingsScreen(
+                    viewModel = authViewModel,
+                    saveDirStore = container.saveDirStore,
+                    state = ready,
+                )
+                else -> Unit
             }
         }
     }

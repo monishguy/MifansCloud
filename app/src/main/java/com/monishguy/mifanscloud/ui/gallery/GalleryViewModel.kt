@@ -55,10 +55,23 @@ class GalleryViewModel(
     private val localMediaSource: LocalMediaSource,
     private val downloadedStore: DownloadedStore,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** 板块缓存代际：清除凭证后变化，缓存失效需重载。 */
+    private val cacheVersion: () -> Int = { 0 },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<GalleryUiState>(GalleryUiState.Idle)
     val state: StateFlow<GalleryUiState> = _state.asStateFlow()
+
+    @Volatile
+    private var loadedGeneration: Int? = null
+
+    /** 首次进入（或凭证清除后）才加载，其余复用缓存。 */
+    fun loadOnce() {
+        val generation = cacheVersion()
+        if (loadedGeneration == generation) return
+        loadedGeneration = generation
+        loadAlbums()
+    }
 
     /** 拉取云端相册列表（仅元数据 + 封面缩略图）。 */
     fun loadAlbums() {
@@ -134,6 +147,7 @@ class GalleryViewModel(
                 galleryApi = container.galleryApi,
                 localMediaSource = container.localMediaSource,
                 downloadedStore = container.downloadedStore,
+                cacheVersion = container.cacheVersion,
             ) as T
     }
 

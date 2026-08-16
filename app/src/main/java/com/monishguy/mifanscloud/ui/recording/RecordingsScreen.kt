@@ -25,6 +25,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,23 +40,25 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.monishguy.mifanscloud.data.recording.RemoteRecording
 import com.monishguy.mifanscloud.data.recording.RecordingType
+import com.monishguy.mifanscloud.data.local.SaveSection
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
  * 录音列表页：名称（还原后的文件名 + 类型徽标）+ 大小/时间，
- * 点条目按需下载（首次选 SAF 备份文件夹）。
+ * 点条目按需下载（目录见设置页，未设置时点选）。
  */
 @Composable
 fun RecordingsScreen(
     viewModel: RecordingsViewModel,
+    saveDirStore: com.monishguy.mifanscloud.data.local.SaveDirStore,
+    onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val contentResolver = context.contentResolver
-    val prefs = remember { context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE) }
-    var treeUri by remember { mutableStateOf(prefs.getString(KEY_TREE_URI, null)) }
+    var treeUri by remember { mutableStateOf(saveDirStore.get(SaveSection.RECORDING)) }
     var folderError by remember { mutableStateOf<String?>(null) }
 
     val pickFolder = rememberLauncherForActivityResult(
@@ -67,14 +70,14 @@ fun RecordingsScreen(
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 )
-                prefs.edit().putString(KEY_TREE_URI, uri.toString()).apply()
+                saveDirStore.set(SaveSection.RECORDING, uri.toString())
                 treeUri = uri.toString()
                 folderError = null
             }.onFailure { folderError = it.message }
         }
     }
 
-    LaunchedEffect(Unit) { viewModel.load() }
+    LaunchedEffect(Unit) { viewModel.loadOnce() }
     val state by viewModel.state.collectAsState()
 
     Column(modifier = modifier.fillMaxSize().padding(12.dp)) {
@@ -83,6 +86,7 @@ fun RecordingsScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            TextButton(onClick = onBack) { Text("← 返回") }
             Text("云端录音", style = MaterialTheme.typography.titleLarge)
             Button(onClick = { viewModel.load() }) { Text("刷新") }
         }
@@ -215,5 +219,3 @@ private fun createRecordingDocument(
     )
 }.getOrNull()
 
-private const val PREFS_NAME = "mifans_prefs"
-private const val KEY_TREE_URI = "backup_tree_uri"

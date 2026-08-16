@@ -18,6 +18,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,12 +37,13 @@ import com.monishguy.mifanscloud.data.gallery.RemoteAlbum
 @Composable
 fun AlbumsScreen(
     viewModel: GalleryViewModel,
+    onBack: () -> Unit,
     onOpenAlbum: (RemoteAlbum) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(Unit) { viewModel.loadAlbums() }
+    LaunchedEffect(Unit) { viewModel.loadOnce() }
 
     Column(modifier = modifier.fillMaxSize().padding(12.dp)) {
         Row(
@@ -49,6 +51,7 @@ fun AlbumsScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            TextButton(onClick = onBack) { Text("← 返回") }
             Text("云端相册", style = MaterialTheme.typography.titleLarge)
             Button(onClick = { viewModel.loadAlbums() }) { Text("刷新") }
         }

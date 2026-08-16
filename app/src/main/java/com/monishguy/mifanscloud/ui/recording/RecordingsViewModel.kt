@@ -39,10 +39,23 @@ class RecordingsViewModel(
     private val api: RecordingApi,
     private val downloadedStore: DownloadedStore,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** 板块缓存代际：清除凭证后变化，缓存失效需重载。 */
+    private val cacheVersion: () -> Int = { 0 },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<RecordingUiState>(RecordingUiState.Idle)
     val state: StateFlow<RecordingUiState> = _state.asStateFlow()
+
+    @Volatile
+    private var loadedGeneration: Int? = null
+
+    /** 首次进入（或凭证清除后）才加载，其余复用缓存。 */
+    fun loadOnce() {
+        val generation = cacheVersion()
+        if (loadedGeneration == generation) return
+        loadedGeneration = generation
+        load()
+    }
 
     /** 拉取云端录音列表（元数据，不下载文件）。 */
     fun load() {
@@ -93,6 +106,7 @@ class RecordingsViewModel(
             RecordingsViewModel(
                 api = container.recordingApi,
                 downloadedStore = container.downloadedStore,
+                cacheVersion = container.cacheVersion,
             ) as T
     }
 
