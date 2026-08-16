@@ -102,6 +102,13 @@ class XiaomiAuthService(
         cache = null
     }
 
+    /**
+     * WebView 登录用：请求 `GET /api/user/login` 获取**小米服务器下发的合法登录链**
+     * （含正确 callback 与 sign——手工拼接的 callback 会报「Callback 连接不合法 10025」）。
+     * 游客态即可访问，无需凭证 Cookie。
+     */
+    fun fetchWebLoginUrl(): String = requestLoginUrl("")
+
     /** 无条件执行三步换取链（测试与手动刷新入口）。 */
     fun exchange(credential: XiaomiCredential.PassToken): SessionToken {
         val deviceId = "wb_" + UUID.randomUUID()

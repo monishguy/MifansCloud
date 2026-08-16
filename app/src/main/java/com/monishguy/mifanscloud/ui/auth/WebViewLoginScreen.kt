@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +70,18 @@ fun WebViewLoginScreen(
     var extracted by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+
+    // 登录链必须由小米服务器下发（含合法 callback+sign），手工拼接会 10025
+    var loginUrl by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        viewModel.fetchWebLoginUrl { url ->
+            loginUrl = url ?: WebLoginFlow.HOME_URL // 兜底：主页由用户手动点登录
+        }
+    }
+    LaunchedEffect(loginUrl, webView) {
+        val url = loginUrl ?: return@LaunchedEffect
+        webView?.loadUrl(url)
+    }
 
     BackHandler {
         if (webView?.canGoBack() == true) webView?.goBack() else onClose()
@@ -186,8 +199,9 @@ fun WebViewLoginScreen(
                                 progress = newProgress
                             }
                         }
-                        // 直接进登录链：登录成功自动跳回 i.mi.com
-                        loadUrl(WebLoginFlow.LOGIN_URL)
+                        // 初始加载由上方 LaunchedEffect(loginUrl, webView) 触发
+                        // （loginUrl 从 /api/user/login 接口获取，含合法 sign）
+                        loadUrl("about:blank")
                     }
                 },
                 modifier = Modifier.fillMaxSize(),

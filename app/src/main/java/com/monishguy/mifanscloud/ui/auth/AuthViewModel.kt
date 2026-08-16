@@ -158,6 +158,16 @@ class AuthViewModel(
         _state.value = AuthUiState.NotConfigured(null)
     }
 
+    /** WebView 登录前获取合法登录链（含 callback 与 sign），失败回调 null。 */
+    fun fetchWebLoginUrl(onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val url = withContext(ioDispatcher) {
+                runCatching { authService.fetchWebLoginUrl() }.getOrNull()
+            }
+            onResult(url)
+        }
+    }
+
     private fun saveAndValidate(credential: XiaomiCredential) {
         viewModelScope.launch {
             _state.value = AuthUiState.Loading
