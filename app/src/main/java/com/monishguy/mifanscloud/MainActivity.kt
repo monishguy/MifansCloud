@@ -26,6 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import com.monishguy.mifanscloud.data.gallery.RemoteAlbum
 import com.monishguy.mifanscloud.data.local.SaveDirStore
 import com.monishguy.mifanscloud.ui.auth.AuthUiState
@@ -96,6 +98,16 @@ private fun MainScaffold(
     val contactsViewModel: ContactsViewModel = viewModel(factory = ContactsViewModel.Factory(container))
     val notesViewModel: NotesViewModel = viewModel(factory = NotesViewModel.Factory(container))
     var screen by remember { mutableStateOf<Screen>(Screen.Welcome) }
+
+    // 软件运行期间定期自动续期（20 分钟），静默执行：成功持久化、失败保持现状不打扰
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(AUTO_RENEW_INTERVAL_MS)
+            authViewModel.autoRenewSilently { ok ->
+                android.util.Log.i("MifansAutoRenew", "auto renew result=$ok")
+            }
+        }
+    }
 
     // 全屏板块页（无底栏）
     when (val s = screen) {
@@ -211,3 +223,6 @@ private fun LoadingScreen() {
         CircularProgressIndicator()
     }
 }
+
+/** 自动续期间隔：20 分钟（serviceToken 由 AutoRenewal 接口长效续期）。 */
+private const val AUTO_RENEW_INTERVAL_MS = 20 * 60 * 1000L

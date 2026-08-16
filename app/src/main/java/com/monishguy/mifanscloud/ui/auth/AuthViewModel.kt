@@ -123,6 +123,34 @@ class AuthViewModel(
         }
     }
 
+    /**
+     * 静默自动续期（软件运行期间定期调用）：
+     * 成功持久化新 serviceToken；失败**保持现状**（不踢回登录页），
+     * 返回是否成功（供 UI 显示上次自动续期结果）。
+     */
+    fun autoRenewSilently(onResult: (Boolean) -> Unit = {}) {
+        val session = (_state.value as? AuthUiState.Ready)?.credential as? XiaomiCredential.ServiceToken ?: run {
+            onResult(false)
+            return
+        }
+        viewModelScope.launch {
+            val fresh = withContext(ioDispatcher) {
+                runCatching {
+                    val renewed = authService.renewServiceToken(session)
+                    store.updateServiceToken(renewed.serviceToken)
+                    renewed
+                }.getOrNull()
+            }
+            if (fresh != null) {
+                _state.value = AuthUiState.Ready(
+                    session.copy(serviceToken = fresh.serviceToken),
+                    fresh.obtainedAt,
+                )
+            }
+            onResult(fresh != null)
+        }
+    }
+
     /** 清除本地凭证并回到未配置状态；同时通知各板块缓存失效。 */
     fun clearCredentials() {
         store.clear()

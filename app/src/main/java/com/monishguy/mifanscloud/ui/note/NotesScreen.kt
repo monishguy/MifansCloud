@@ -1,9 +1,12 @@
 package com.monishguy.mifanscloud.ui.note
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.monishguy.mifanscloud.data.local.DownloadNotifier
 import com.monishguy.mifanscloud.data.local.SafHelper
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +53,7 @@ fun NotesScreen(
     val contentResolver = context.contentResolver
     var treeUri by remember { mutableStateOf(saveDirStore.get(SaveSection.NOTE)) }
     var folderError by remember { mutableStateOf<String?>(null) }
+    var exportHint by remember { mutableStateOf<String?>(null) }
 
     val pickFolder = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -70,7 +74,12 @@ fun NotesScreen(
     LaunchedEffect(Unit) { viewModel.loadOnce() }
     val state by viewModel.state.collectAsState()
 
-    Column(modifier = modifier.fillMaxSize().padding(12.dp)) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(12.dp),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -95,11 +104,38 @@ fun NotesScreen(
                         folderError = "请先选择保存目录"
                         pickFolder.launch(null)
                     } else {
+                        val notifId = DownloadNotifier.start(context, "笔记导出", "正在导出 Markdown…")
+                        viewModel.exportMarkdown(
+                            outputProvider = { fileName ->
+                                SafHelper.createDocument(contentResolver, folder, "text/markdown", fileName)
+                                    ?.let { contentResolver.openOutputStream(it) }
+                            },
+                            onDone = { count, error ->
+                                val msg = error ?: "已导出 $count 篇笔记为 Markdown"
+                                exportHint = msg
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                DownloadNotifier.finish(
+                                    context, notifId,
+                                    if (error != null) "笔记导出失败" else "笔记导出完成", msg,
+                                    success = error == null,
+                                )
+                            },
+                        )
+                    }
+                }) { Text("导出 Markdown") }
+                Spacer(Modifier.padding(horizontal = 4.dp))
+                OutlinedButton(onClick = {
+                    val folder = treeUri
+                    if (folder == null) {
+                        folderError = "请先选择保存目录"
+                        pickFolder.launch(null)
+                    } else {
                         val uri = SafHelper.createDocument(
                             contentResolver, folder, "application/json", "notes.json",
                         )
                         if (uri != null) {
                             viewModel.exportJson { contentResolver.openOutputStream(uri)!! }
+                            exportHint = "JSON 已导出"
                         }
                     }
                 }) { Text("导出 JSON") }
@@ -107,6 +143,9 @@ fun NotesScreen(
         }
         folderError?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        exportHint?.let {
+            Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(8.dp))
 
@@ -131,13 +170,13 @@ fun NotesScreen(
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
                             Text(
-                                note.subject.ifBlank { note.snippet.ifBlank { "(无标题)" } },
+                                note.title.ifBlank { "(无标题)" },
                                 style = MaterialTheme.typography.titleSmall,
                                 maxLines = 1,
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                note.snippet,
+                                note.snippet.take(120),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,

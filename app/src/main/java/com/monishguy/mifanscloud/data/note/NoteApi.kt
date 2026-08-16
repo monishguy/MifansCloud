@@ -8,12 +8,15 @@ import org.json.JSONObject
 /** 云端笔记。 */
 data class RemoteNote(
     val id: String,
+    /** 真实标题：extraInfo.title / content.title（云端 subject 字段恒为空）。 */
+    val title: String,
     val subject: String,
     val snippet: String,
     val content: String,
+    val extraInfo: String,
     val folderId: String?,
     val modifyDate: Long,
-    /** 原始 entry JSON 快照（诊断/兜底：字段为空时用于定位真实结构）。 */
+    /** 原始 entry JSON 快照（诊断/兜底）。 */
     val raw: String = "",
 )
 
@@ -48,13 +51,16 @@ class NoteApi(
         val notes = mutableListOf<RemoteNote>()
         for (i in 0 until (entries?.length() ?: 0)) {
             val e = entries!!.getJSONObject(i)
+            val extraInfo = e.optString("extraInfo")
+            val content = e.optString("content")
             notes += RemoteNote(
                 id = e.optString("id"),
-                // 标题兜底摘要：部分笔记 subject 为空时用 snippet 展示
-                subject = e.optString("subject").ifBlank { e.optString("snippet") },
+                // 真机验证：标题在 extraInfo.title / content.title，subject 恒为空
+                title = NoteMarkdown.parseTitle(extraInfo, content),
+                subject = e.optString("subject"),
                 snippet = e.optString("snippet"),
-                // 正文兜底 extraInfo：部分类型笔记内容在 extraInfo
-                content = e.optString("content").ifBlank { e.optString("extraInfo") },
+                content = content,
+                extraInfo = extraInfo,
                 folderId = e.opt("folderId")?.toString(),
                 modifyDate = e.optLong("modifyDate"),
                 raw = e.toString(),

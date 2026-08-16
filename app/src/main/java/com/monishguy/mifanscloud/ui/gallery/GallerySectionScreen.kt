@@ -3,6 +3,7 @@ package com.monishguy.mifanscloud.ui.gallery
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -229,6 +230,25 @@ private fun PhotosTab(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
+                } else if (s.assets.isEmpty()) {
+                    // 空态：明确提示 + 重试（不做空白页）
+                    Column(
+                        Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text("未拉取到照片", style = MaterialTheme.typography.bodyLarge)
+                        if (s.failedAlbums > 0) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "${s.failedAlbums} 个相册拉取失败（可能限流）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = { viewModel.loadAllPhotos() }) { Text("重新拉取") }
+                    }
                 } else {
                     AssetGrid(
                         rows = s.assets,
@@ -349,7 +369,9 @@ private fun PhotosTab(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    uploadHint = "上传接口待逆向：请抓取 i.mi.com 网页端上传照片的 Network HAR（README §7）"
+                    val msg = "上传接口尚未逆向（三个参考项目均无上传实现，需要 i.mi.com 网页上传的抓包 HAR），当前版本无法上传"
+                    uploadHint = msg
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                     uploadTarget = null
                 }) { Text("确定") }
             },

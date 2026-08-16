@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.monishguy.mifanscloud.AppContainer
 import com.monishguy.mifanscloud.data.note.NoteApi
+import com.monishguy.mifanscloud.data.note.NoteMarkdown
 import com.monishguy.mifanscloud.data.note.RemoteNote
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** 笔记板块 UI 状态。 */
 sealed interface NotesUiState {
@@ -86,6 +90,60 @@ class NotesViewModel(
             }
         }
     }
+
+    /**
+     * 导出多份 Markdown：每篇笔记一个 .md 文件。
+     * [outputProvider] 接收目标文件名（已清洗、已按序号去重）返回输出流；
+     * [onDone] 回调 (成功数, 错误信息)。
+     */
+    fun exportMarkdown(
+        outputProvider: (fileName: String) -> OutputStream?,
+        onDone: (Int, String?) -> Unit,
+    ) {
+        val notes = (_state.value as? NotesUiState.Notes)?.notes.orEmpty()
+        if (notes.isEmpty()) {
+            onDone(0, "笔记列表为空")
+            return
+        }
+        viewModelScope.launch {
+            val result = withContext(ioDispatcher) {
+                runCatching {
+                    var exported = 0
+                    val usedNames = mutableSetOf<String>()
+                    notes.sortedByDescending { it.modifyDate }.forEachIndexed { index, note ->
+                        val fallback = NoteMarkdown.snippetToMarkdown(note.snippet)
+                            .lineSequence().firstOrNull()?.take(20) ?: ""
+                        val title = note.title.ifBlank { fallback }.ifBlank { "无标题" }
+                        val base = sanitizeMarkdownFileName(title)
+                        var fileName = "$base.md"
+                        if (!usedNames.add(fileName)) {
+                            fileName = "${base}_${index + 1}.md"
+                            usedNames.add(fileName)
+                        }
+                        val body = buildString {
+                            append("# ").append(title).append("\n\n")
+                            append(NoteMarkdown.snippetToMarkdown(note.snippet))
+                            append("\n\n---\n")
+                            append("修改时间: ").append(SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(note.modifyDate)))
+                            append("\n")
+                        }
+                        val out = outputProvider(fileName) ?: return@forEachIndexed
+                        out.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                        exported++
+                    }
+                    exported
+                }
+            }
+            result.fold(
+                onSuccess = { onDone(it, null) },
+                onFailure = { onDone(0, it.message) },
+            )
+        }
+    }
+
+    /** Markdown 文件名清洗：去掉路径分隔符与非法字符，限制长度。 */
+    private fun sanitizeMarkdownFileName(name: String): String =
+        name.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_").trim('_').take(40).ifBlank { "note" }
 
     /** AppContainer 装配工厂。 */
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {

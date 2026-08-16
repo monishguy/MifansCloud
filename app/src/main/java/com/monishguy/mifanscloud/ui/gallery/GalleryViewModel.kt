@@ -109,34 +109,54 @@ class GalleryViewModel(
         loadAlbums()
     }
 
-    /** 相册 tab：有内存缓存直接显示，不发网络。 */
+    /** 相册 tab：有内存缓存直接显示；无则先显持久化缓存（不转圈），后台网络刷新。 */
     fun ensureAlbums() {
         val cached = albumsCache
         if (cached != null) {
             _state.value = GalleryUiState.Albums(cached)
             return
         }
-        loadAlbums()
+        viewModelScope.launch {
+            withContext(ioDispatcher) { metadataCache?.loadAlbums() }?.let { disk ->
+                albumsCache = disk.sortedWith(ALBUM_NAME_ORDER)
+                _state.value = GalleryUiState.Albums(albumsCache!!, fromCache = true)
+            }
+            loadAlbums()
+        }
     }
 
-    /** 照片 tab：有内存缓存直接显示，不发网络。 */
+    /** 照片 tab：有内存缓存直接显示；无则先显持久化缓存（不转圈），后台网络刷新。 */
     fun ensurePhotos() {
         val cached = photosCache
         if (cached != null) {
             _state.value = GalleryUiState.Photos(cached, loading = false)
             return
         }
-        loadAllPhotos()
+        viewModelScope.launch {
+            val diskRows = withContext(ioDispatcher) { metadataCache?.loadAllPhotos() }?.let { matchRows(it) }
+            if (diskRows != null) {
+                photosCache = diskRows
+                _state.value = GalleryUiState.Photos(diskRows, loading = false, stale = true)
+            }
+            loadAllPhotos()
+        }
     }
 
-    /** 相册内页：有内存缓存直接显示；首次进入网络拉取。 */
+    /** 相册内页：有内存缓存直接显示；无则先显持久化缓存，后台网络刷新。 */
     fun ensureAlbum(album: RemoteAlbum) {
         val cached = albumAssetsCache[album.albumId]
         if (cached != null) {
             _state.value = GalleryUiState.AlbumAssets(album, cached, loading = false)
             return
         }
-        loadAlbum(album)
+        viewModelScope.launch {
+            val diskRows = withContext(ioDispatcher) { metadataCache?.loadAssets(album.albumId) }?.let { matchRows(it) }
+            if (diskRows != null) {
+                albumAssetsCache[album.albumId] = diskRows
+                _state.value = GalleryUiState.AlbumAssets(album, diskRows, loading = false, stale = true)
+            }
+            loadAlbum(album)
+        }
     }
 
     /** 拉取相册列表：本地缓存秒开 → 网络刷新 → 写缓存。 */
@@ -170,12 +190,14 @@ class GalleryViewModel(
 
     /**
      * 拉取全部照片：合并各普通相册资产，按 dateTaken 新旧降序。
+     * 加载期间**保留已有内容**（不清空页面）：仅首次无内容时由 UI 显示加载态。
      * 单个相册拉取失败自动重试 3 次（503 限流常见），相册间 400ms 节流；
      * 仍失败的跳过并计数 [GalleryUiState.Photos.failedAlbums]；全部失败回退持久化缓存。
      */
     fun loadAllPhotos() {
         viewModelScope.launch {
-            _state.value = GalleryUiState.Photos(emptyList(), loading = true)
+            val existing = photosCache ?: ( _state.value as? GalleryUiState.Photos)?.assets.orEmpty()
+            _state.value = GalleryUiState.Photos(existing, loading = existing.isEmpty())
             val result = withContext(ioDispatcher) {
                 runCatching {
                     val albums = galleryApi.fetchAlbums()
@@ -201,11 +223,11 @@ class GalleryViewModel(
                     }
                 },
                 onFailure = { error ->
-                    val cached = withContext(ioDispatcher) { metadataCache?.loadAllPhotos() }
+                    val cached = photosCache ?: withContext(ioDispatcher) { metadataCache?.loadAllPhotos() }
+                        ?.let { matchRows(it) }
                     if (cached != null) {
-                        val rows = matchRows(cached)
-                        photosCache = rows
-                        _state.value = GalleryUiState.Photos(rows, loading = false, stale = true)
+                        photosCache = cached
+                        _state.value = GalleryUiState.Photos(cached, loading = false, stale = true)
                     } else {
                         _state.value = GalleryUiState.Error(error.message ?: "拉取照片失败")
                     }

@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import com.monishguy.mifanscloud.data.local.DownloadNotifier
 import com.monishguy.mifanscloud.data.local.SafHelper
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,7 +103,12 @@ fun ContactsScreen(
     LaunchedEffect(Unit) { viewModel.loadOnce() }
     val state by viewModel.state.collectAsState()
 
-    Column(modifier = modifier.fillMaxSize().padding(12.dp)) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(12.dp),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
