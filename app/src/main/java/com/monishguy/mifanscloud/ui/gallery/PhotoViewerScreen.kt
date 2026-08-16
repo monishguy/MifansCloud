@@ -8,12 +8,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,11 +31,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.monishguy.mifanscloud.data.gallery.RemoteAsset
+import com.monishguy.mifanscloud.data.local.DownloadNotifier
 import com.monishguy.mifanscloud.data.local.SafHelper
 import com.monishguy.mifanscloud.data.local.SaveDirStore
 import com.monishguy.mifanscloud.data.local.SaveSection
@@ -44,22 +45,67 @@ import java.io.File
 
 /**
  * 全屏原图查看器（需求 3）：
- * - 打开时经签名直链拉取原图到缓存，Coil 全屏展示（可捏合缩放）；
+ * - 左右滑动切换相邻照片（HorizontalPager，与列表同序）；
+ * - 打开时经签名直链拉取原图到缓存，Coil 全屏展示；
+ * - 视频条目提示「暂不支持预览」，仍可下载；
  * - 右下角无文字下载按钮：保存原图到相册备份目录；
- * - 返回回到来源页。
+ * - 下载进度显示在通知栏（POST_NOTIFICATIONS 授权时）。
  */
 @Composable
 fun PhotoViewerScreen(
     viewModel: GalleryViewModel,
-    asset: RemoteAsset,
+    rows: List<AssetRow>,
+    initialIndex: Int,
     saveDirStore: SaveDirStore,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val pagerState = rememberPagerState(initialPage = initialIndex.coerceIn(0, (rows.size - 1).coerceAtLeast(0))) {
+        rows.size
+    }
+
+    BackHandler { onBack() }
+
+    Box(modifier.fillMaxSize().background(Color.Black)) {
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            ViewerPage(
+                viewModel = viewModel,
+                asset = rows[page].asset,
+                saveDirStore = saveDirStore,
+                onBack = onBack,
+            )
+        }
+        // 页码指示（顶部居中）
+        if (rows.size > 1) {
+            Surface(
+                color = Color(0x66000000),
+                shape = CircleShape,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp),
+            ) {
+                Text(
+                    "${pagerState.currentPage + 1} / ${rows.size}",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ViewerPage(
+    viewModel: GalleryViewModel,
+    asset: RemoteAsset,
+    saveDirStore: SaveDirStore,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val contentResolver = context.contentResolver
     var originalFile by remember { mutableStateOf<File?>(null) }
-    var loadFailed by remember { mutableStateOf(false) }
+    var loadState by remember { mutableStateOf<LoadState>(LoadState.LOADING) }
     var hint by remember { mutableStateOf<String?>(null) }
     var treeUri by remember { mutableStateOf(saveDirStore.get(SaveSection.ALBUM)) }
     var folderError by remember { mutableStateOf<String?>(null) }
@@ -80,31 +126,47 @@ fun PhotoViewerScreen(
         }
     }
 
+    val isVideo = asset.type.equals("video", ignoreCase = true) ||
+        asset.mimeType.startsWith("video/", ignoreCase = true)
+
     LaunchedEffect(asset.id) {
-        originalFile = viewModel.loadOriginal(asset, context.cacheDir)
-        loadFailed = originalFile == null
+        if (isVideo) {
+            loadState = LoadState.VIDEO
+        } else {
+            loadState = LoadState.LOADING
+            originalFile = viewModel.loadOriginal(asset, context.cacheDir)
+            loadState = if (originalFile != null) LoadState.READY else LoadState.FAILED
+        }
     }
 
-    BackHandler { onBack() }
+    Box(Modifier.fillMaxSize()) {
+        when (loadState) {
+            LoadState.READY -> originalFile?.let { file ->
+                AsyncImage(
+                    model = file,
+                    contentDescription = asset.title,
+                    contentScale = ContentScale.Fit,
+                    placeholder = ColorPainter(Color.Black),
+                    error = ColorPainter(Color.Black),
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
 
-    Box(modifier.fillMaxSize().background(Color.Black)) {
-        val file = originalFile
-        when {
-            file != null -> AsyncImage(
-                model = file,
-                contentDescription = asset.title,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            loadFailed -> Text(
-                "原图加载失败（可能已在云端删除）",
+            LoadState.VIDEO -> Text(
+                "视频暂不支持预览，可点右下角下载",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.align(Alignment.Center),
             )
 
-            else -> CircularProgressIndicator(
+            LoadState.FAILED -> Text(
+                "原图加载失败（可能已在云端删除）",
+                color = Color(0xFFFFB74D),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.align(Alignment.Center),
+            )
+
+            LoadState.LOADING -> CircularProgressIndicator(
                 color = Color.White,
                 modifier = Modifier.align(Alignment.Center),
             )
@@ -144,14 +206,20 @@ fun PhotoViewerScreen(
                 } else {
                     val uri = SafHelper.createDocument(
                         contentResolver, folder,
-                        asset.mimeType.ifBlank { "image/jpeg" },
+                        asset.mimeType.ifBlank { "application/octet-stream" },
                         sanitizeFileName(asset.fileName),
                     )
                     if (uri != null) {
+                        val notifId = DownloadNotifier.start(context, "下载", asset.fileName)
                         viewModel.downloadAsset(
                             asset = asset,
                             outputProvider = { contentResolver.openOutputStream(uri)!! },
-                            onCompleted = { hint = "已保存到备份目录" },
+                            onCompleted = {
+                                hint = "已保存到备份目录"
+                                DownloadNotifier.finish(
+                                    context, notifId, "下载完成", asset.fileName, success = true,
+                                )
+                            },
                         )
                     } else {
                         folderError = "无法在备份文件夹创建文件"
@@ -180,4 +248,8 @@ fun PhotoViewerScreen(
             }
         }
     }
+}
+
+private enum class LoadState {
+    LOADING, READY, FAILED, VIDEO,
 }

@@ -62,19 +62,23 @@ class NotesViewModel(
         }
     }
 
-    /** 导出为 Markdown 目录下的 notes.json 备份。 */
+    /** 导出为 Markdown 目录下的 notes.json 备份（含原始字段 rawJson 兜底）。 */
     fun exportJson(outputProvider: (String) -> OutputStream) {
         val notes = (_state.value as? NotesUiState.Notes)?.notes ?: return
         val arr = JSONArray()
         notes.forEach { n ->
-            arr.put(
-                JSONObject()
-                    .put("id", n.id)
-                    .put("subject", n.subject)
-                    .put("content", n.content)
-                    .put("folderId", n.folderId ?: JSONObject.NULL)
-                    .put("modifyDate", n.modifyDate)
-            )
+            val obj = JSONObject()
+                .put("id", n.id)
+                .put("subject", n.subject)
+                .put("snippet", n.snippet)
+                .put("content", n.content)
+                .put("folderId", n.folderId ?: JSONObject.NULL)
+                .put("modifyDate", n.modifyDate)
+            // 原始 JSON 快照：即使上面字段为空也能从 rawJson 找回全部信息
+            if (n.raw.isNotBlank()) {
+                obj.put("rawJson", JSONObject(n.raw))
+            }
+            arr.put(obj)
         }
         viewModelScope.launch {
             withContext(ioDispatcher) {

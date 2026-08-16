@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.monishguy.mifanscloud.data.gallery.RemoteAlbum
 import com.monishguy.mifanscloud.data.gallery.RemoteAsset
+import com.monishguy.mifanscloud.data.local.DownloadNotifier
 import com.monishguy.mifanscloud.data.local.SafHelper
 import com.monishguy.mifanscloud.data.local.SaveDirStore
 import com.monishguy.mifanscloud.data.local.SaveSection
@@ -53,7 +54,7 @@ fun AlbumAssetsScreen(
     album: RemoteAlbum,
     saveDirStore: SaveDirStore,
     onBack: () -> Unit,
-    onOpenPhoto: (RemoteAsset) -> Unit,
+    onOpenPhoto: (rows: List<AssetRow>, index: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -62,6 +63,7 @@ fun AlbumAssetsScreen(
     var folderError by remember { mutableStateOf<String?>(null) }
     var selection by remember { mutableStateOf<Set<String>>(emptySet()) }
     var progress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var notifId by remember { mutableStateOf<Int?>(null) }
 
     val pickFolder = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -123,6 +125,13 @@ fun AlbumAssetsScreen(
 
         when (val s = state) {
             is GalleryUiState.AlbumAssets -> {
+                if (s.stale) {
+                    Text(
+                        "网络刷新失败，当前显示上次缓存",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 if (s.loading && s.assets.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -134,7 +143,10 @@ fun AlbumAssetsScreen(
                         onToggle = { id ->
                             selection = if (id in selection) selection - id else selection + id
                         },
-                        onOpen = onOpenPhoto,
+                        onOpen = { asset ->
+                            val currentRows = s.assets
+                            onOpenPhoto(currentRows, currentRows.indexOfFirst { it.asset.id == asset.id })
+                        },
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -181,6 +193,7 @@ fun AlbumAssetsScreen(
                             } else {
                                 val assets = rows.orEmpty().map { it.asset }.filter { it.id in selection }
                                 progress = 0 to assets.size
+                                notifId = DownloadNotifier.start(context, "批量下载", "0/${assets.size}")
                                 viewModel.downloadAssets(
                                     assets = assets,
                                     outputProvider = { asset ->
@@ -190,10 +203,20 @@ fun AlbumAssetsScreen(
                                             sanitizeFileName(asset.fileName),
                                         )?.let { contentResolver.openOutputStream(it) }
                                     },
-                                    onProgress = { done, total -> progress = done to total },
+                                    onProgress = { done, total ->
+                                        progress = done to total
+                                        DownloadNotifier.update(
+                                            context, notifId, "批量下载", "$done/$total", done, total,
+                                        )
+                                    },
                                     onCompleted = {
                                         progress = null
                                         selection = emptySet()
+                                        DownloadNotifier.finish(
+                                            context, notifId, "批量下载完成",
+                                            "已保存 ${assets.size} 张照片", success = true,
+                                        )
+                                        notifId = null
                                     },
                                 )
                             }

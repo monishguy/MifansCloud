@@ -105,23 +105,26 @@ class RecordingsViewModelTest {
             advanceUntilIdle()
             val recording = (vm.state.value as RecordingUiState.Recordings).recordings[0].recording
 
-            // 下载三步链 + 下载后自动 load() 刷新
+            // 下载三步链（不再整表刷新，仅局部更新该行）
             server.enqueue(MockResponse().setBody("""{"code":0,"data":{"url":"${server.url("/oss")}"}}"""))
             server.enqueue(MockResponse().setBody("""dl_callback({"url":"${server.url("/dl")}","meta":"m9"})"""))
             server.enqueue(MockResponse().setBody("AUDIO-BYTES"))
-            server.enqueue(
-                MockResponse().setBody(
-                    """{"data":{"list":[
-                        {"id":"11","name":"录音_20240801.m4a_1_0_1_3","sha1":"s","size":2048,"create_time":1}
-                    ]}}"""
-                )
-            )
 
-            vm.download(recording) { ByteArrayOutputStream() }
+            var completedOk: Boolean? = null
+            vm.download(
+                recording,
+                outputProvider = { ByteArrayOutputStream() },
+                onCompleted = { completedOk = it },
+            )
             advanceUntilIdle()
 
             assertEquals(setOf("11"), store.ids("recording"))
             assertTrue(store.ids("gallery").isEmpty())
+            assertEquals(true, completedOk)
+            // 局部更新：行标记 downloaded=true，无第二次列表请求（server 队列已空）
+            val row = (vm.state.value as RecordingUiState.Recordings).recordings[0]
+            assertEquals(true, row.downloaded)
+            assertEquals(false, row.downloading)
         }
     }
 }

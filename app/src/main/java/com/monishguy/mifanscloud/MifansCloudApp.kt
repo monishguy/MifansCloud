@@ -12,6 +12,7 @@ import com.monishguy.mifanscloud.data.contact.ContactApi
 import com.monishguy.mifanscloud.data.gallery.GalleryApi
 import com.monishguy.mifanscloud.data.note.NoteApi
 import com.monishguy.mifanscloud.data.recording.RecordingApi
+import com.monishguy.mifanscloud.data.local.GalleryMetadataCache
 import com.monishguy.mifanscloud.data.local.SaveDirStore
 import com.monishguy.mifanscloud.data.remote.XiaomiApiClient
 import com.monishguy.mifanscloud.data.sms.SmsApi
@@ -104,6 +105,12 @@ class AppContainer(context: Context) {
 
     /** 各板块独立保存目录（SAF）。 */
     val saveDirStore: SaveDirStore = SaveDirStore(appContext)
+
+    /** 相册元数据持久化缓存（按 userId 隔离）。 */
+    val galleryMetadataCache: GalleryMetadataCache = GalleryMetadataCache(
+        context = appContext,
+        userIdProvider = { credentialStore.load()?.userId },
+    )
 
     /** 板块缓存代际：清除凭证时 +1，各 ViewModel 据此判断缓存是否失效。 */
     private val cacheGeneration = java.util.concurrent.atomic.AtomicInteger(0)

@@ -1,6 +1,8 @@
 package com.monishguy.mifanscloud.ui.contact
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.monishguy.mifanscloud.data.local.SafHelper
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,11 +34,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.monishguy.mifanscloud.data.local.SaveDirStore
 import com.monishguy.mifanscloud.data.local.SaveSection
 
 /**
- * 通讯录板块页：按名字排序清单 + 导出 JSON（目录见设置页）。
+ * 通讯录板块页：按名字排序清单 + 导出 JSON + 导入本机系统通讯录。
  */
 @Composable
 fun ContactsScreen(
@@ -49,6 +52,7 @@ fun ContactsScreen(
     val contentResolver = context.contentResolver
     var treeUri by remember { mutableStateOf(saveDirStore.get(SaveSection.CONTACT)) }
     var folderError by remember { mutableStateOf<String?>(null) }
+    var importHint by remember { mutableStateOf<String?>(null) }
 
     val pickFolder = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -63,6 +67,19 @@ fun ContactsScreen(
                 treeUri = uri.toString()
                 folderError = null
             }.onFailure { folderError = it.message }
+        }
+    }
+
+    // 导入本机通讯录：先申请 WRITE_CONTACTS，授权后执行导入
+    val writeContactsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.importToDevice(context) { count, error ->
+                importHint = error ?: "已导入 $count 位联系人到本机通讯录"
+            }
+        } else {
+            importHint = "未授予通讯录写入权限，无法导入"
         }
     }
 
@@ -89,6 +106,18 @@ fun ContactsScreen(
                 )
                 Spacer(Modifier.padding(horizontal = 8.dp))
                 OutlinedButton(onClick = {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) ==
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                        viewModel.importToDevice(context) { count, error ->
+                            importHint = error ?: "已导入 $count 位联系人到本机通讯录"
+                        }
+                    } else {
+                        writeContactsLauncher.launch(Manifest.permission.WRITE_CONTACTS)
+                    }
+                }) { Text("导入本机") }
+                Spacer(Modifier.padding(horizontal = 4.dp))
+                OutlinedButton(onClick = {
                     val folder = treeUri
                     if (folder == null) {
                         folderError = "请先选择保存目录"
@@ -106,6 +135,9 @@ fun ContactsScreen(
         }
         folderError?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        importHint?.let {
+            Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(8.dp))
 

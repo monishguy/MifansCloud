@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.monishguy.mifanscloud.data.recording.RemoteRecording
 import com.monishguy.mifanscloud.data.recording.RecordingType
+import com.monishguy.mifanscloud.data.local.DownloadNotifier
 import com.monishguy.mifanscloud.data.local.SaveSection
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +61,7 @@ fun RecordingsScreen(
     val contentResolver = context.contentResolver
     var treeUri by remember { mutableStateOf(saveDirStore.get(SaveSection.RECORDING)) }
     var folderError by remember { mutableStateOf<String?>(null) }
+    var savedHint by remember { mutableStateOf<String?>(null) }
 
     val pickFolder = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -98,6 +100,9 @@ fun RecordingsScreen(
         folderError?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+        savedHint?.let {
+            Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+        }
         Spacer(Modifier.height(8.dp))
 
         when (val s = state) {
@@ -128,9 +133,17 @@ fun RecordingsScreen(
                         } else {
                             val uri = createRecordingDocument(contentResolver, folder, row.recording)
                             if (uri != null) {
-                                viewModel.download(row.recording) {
+                                val notifId = DownloadNotifier.start(context, "录音下载", row.recording.fileName)
+                                viewModel.download(row.recording, outputProvider = {
                                     contentResolver.openOutputStream(uri)!!
-                                }
+                                }, onCompleted = { ok ->
+                                    savedHint = if (ok) "已保存：${row.recording.fileName}" else "下载失败：${row.recording.fileName}"
+                                    DownloadNotifier.finish(
+                                        context, notifId,
+                                        if (ok) "录音下载完成" else "录音下载失败",
+                                        row.recording.fileName, success = ok,
+                                    )
+                                })
                             } else {
                                 folderError = "无法在备份文件夹创建文件"
                             }
@@ -168,6 +181,15 @@ private fun RecordingCard(row: RecordingRow, onClick: () -> Unit) {
                     modifier = Modifier.size(24.dp),
                     strokeWidth = 2.dp,
                 )
+            } else if (row.downloaded) {
+                Surface(color = Color(0xFF1565C0)) {
+                    Text(
+                        "已下",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
             } else {
                 Surface(
                     color = if (row.recording.type == RecordingType.UNKNOWN) {

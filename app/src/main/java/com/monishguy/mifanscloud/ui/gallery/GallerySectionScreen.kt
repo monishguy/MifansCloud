@@ -1,5 +1,6 @@
 package com.monishguy.mifanscloud.ui.gallery
 
+import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
@@ -55,6 +56,7 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.monishguy.mifanscloud.data.gallery.RemoteAlbum
 import com.monishguy.mifanscloud.data.gallery.RemoteAsset
+import com.monishguy.mifanscloud.data.local.DownloadNotifier
 import com.monishguy.mifanscloud.data.local.SafHelper
 import com.monishguy.mifanscloud.data.local.SaveSection
 import com.monishguy.mifanscloud.data.local.SaveDirStore
@@ -77,7 +79,7 @@ fun GallerySectionScreen(
     saveDirStore: SaveDirStore,
     onBack: () -> Unit,
     onOpenAlbum: (RemoteAlbum) -> Unit,
-    onOpenPhoto: (RemoteAsset) -> Unit,
+    onOpenPhoto: (rows: List<AssetRow>, index: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -130,7 +132,7 @@ private fun PhotosTab(
     viewModel: GalleryViewModel,
     saveDirStore: SaveDirStore,
     context: android.content.Context,
-    onOpenPhoto: (RemoteAsset) -> Unit,
+    onOpenPhoto: (rows: List<AssetRow>, index: Int) -> Unit,
 ) {
     val contentResolver = context.contentResolver
     val state by viewModel.state.collectAsState()
@@ -139,6 +141,7 @@ private fun PhotosTab(
     var folderError by remember { mutableStateOf<String?>(null) }
     var selection by remember { mutableStateOf<Set<String>>(emptySet()) }
     var progress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var notifId by remember { mutableStateOf<Int?>(null) }
 
     // 上传流程
     var uploadTarget by remember { mutableStateOf<RemoteAlbum?>(null) }
@@ -157,11 +160,15 @@ private fun PhotosTab(
     ) { _ -> viewModel.loadAllPhotos() }
 
     LaunchedEffect(Unit) {
-        val needed = mediaPermissions()
+        // 媒体读取 + 通知权限（Android 13+）
+        val needed = mediaPermissions().toMutableList()
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            needed += Manifest.permission.POST_NOTIFICATIONS
+        }
         if (needed.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
             viewModel.loadAllPhotos()
         } else {
-            permissionLauncher.launch(needed)
+            permissionLauncher.launch(needed.toTypedArray())
         }
     }
 
@@ -187,7 +194,7 @@ private fun PhotosTab(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("全部照片 · 最新在前", style = MaterialTheme.typography.titleMedium)
+            Text("全部照片", style = MaterialTheme.typography.titleMedium)
             IconButton(onClick = {
                 pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }) {
@@ -204,6 +211,20 @@ private fun PhotosTab(
 
         when (val s = state) {
             is GalleryUiState.Photos -> {
+                if (s.stale) {
+                    Text(
+                        "网络刷新失败，当前显示上次缓存",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                if (s.failedAlbums > 0) {
+                    Text(
+                        "${s.failedAlbums} 个相册拉取失败（可能限流），已跳过",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 if (s.loading && s.assets.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -215,7 +236,10 @@ private fun PhotosTab(
                         onToggle = { id ->
                             selection = if (id in selection) selection - id else selection + id
                         },
-                        onOpen = onOpenPhoto,
+                        onOpen = { asset ->
+                            val rows = s.assets
+                            onOpenPhoto(rows, rows.indexOfFirst { it.asset.id == asset.id })
+                        },
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -263,6 +287,7 @@ private fun PhotosTab(
                                 val rows = (state as? GalleryUiState.Photos)?.assets.orEmpty()
                                 val assets = rows.map { it.asset }.filter { it.id in selection }
                                 progress = 0 to assets.size
+                                notifId = DownloadNotifier.start(context, "批量下载", "0/${assets.size}")
                                 viewModel.downloadAssets(
                                     assets = assets,
                                     outputProvider = { asset ->
@@ -272,10 +297,20 @@ private fun PhotosTab(
                                             sanitizeFileName(asset.fileName),
                                         )?.let { contentResolver.openOutputStream(it) }
                                     },
-                                    onProgress = { done, total -> progress = done to total },
+                                    onProgress = { done, total ->
+                                        progress = done to total
+                                        DownloadNotifier.update(
+                                            context, notifId, "批量下载", "$done/$total", done, total,
+                                        )
+                                    },
                                     onCompleted = {
                                         progress = null
                                         selection = emptySet()
+                                        DownloadNotifier.finish(
+                                            context, notifId, "批量下载完成",
+                                            "已保存 ${assets.size} 张照片", success = true,
+                                        )
+                                        notifId = null
                                     },
                                 )
                             }

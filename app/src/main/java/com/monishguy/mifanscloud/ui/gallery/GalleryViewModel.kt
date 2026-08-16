@@ -7,6 +7,7 @@ import com.monishguy.mifanscloud.AppContainer
 import com.monishguy.mifanscloud.data.gallery.GalleryApi
 import com.monishguy.mifanscloud.data.gallery.RemoteAlbum
 import com.monishguy.mifanscloud.data.gallery.RemoteAsset
+import com.monishguy.mifanscloud.data.local.GalleryMetadataCache
 import com.monishguy.mifanscloud.data.sync.CloudLocalMatcher
 import com.monishguy.mifanscloud.data.sync.DownloadedStore
 import com.monishguy.mifanscloud.data.sync.LocalMediaSource
@@ -28,13 +29,19 @@ sealed interface GalleryUiState {
     data object Idle : GalleryUiState
     data object Loading : GalleryUiState
 
-    /** 相册列表（按名称文字排序）。 */
-    data class Albums(val albums: List<RemoteAlbum>) : GalleryUiState
+    /** 相册列表（按名称文字排序；[fromCache] 表示先显示的本地缓存，网络刷新中）。 */
+    data class Albums(
+        val albums: List<RemoteAlbum>,
+        val fromCache: Boolean = false,
+    ) : GalleryUiState
 
     /** 全部照片（合并各相册，按 dateTaken 新旧降序，最新在最顶）。 */
     data class Photos(
         val assets: List<AssetRow>,
         val loading: Boolean,
+        val stale: Boolean = false,
+        /** 拉取失败的相册数（503 等，已跳过）。 */
+        val failedAlbums: Int = 0,
     ) : GalleryUiState
 
     /** 相册内资产网格（按 dateTaken 新旧降序）：每条带匹配状态。 */
@@ -42,6 +49,7 @@ sealed interface GalleryUiState {
         val album: RemoteAlbum,
         val assets: List<AssetRow>,
         val loading: Boolean,
+        val stale: Boolean = false,
     ) : GalleryUiState
 
     data class Error(val message: String) : GalleryUiState
@@ -65,11 +73,10 @@ private val NEWEST_FIRST: Comparator<AssetRow> =
 
 /**
  * 相册同步 ViewModel：
- * - 相册列表按名称文字排序；
- * - 相册内 / 全部照片按 dateTaken 新旧降序（最新在最顶，对齐用户需求 3）；
- * - 纯缩略图浏览（云端清单自带），原图仅查看/下载时经签名直链拉取；
- * - 批量下载按选中顺序逐个写入 SAF 输出流。
- * 数据源 seam：注入 [GalleryApi] / [LocalMediaSource] / [DownloadedStore]。
+ * - 相册列表按名称文字排序；相册内 / 全部照片按 dateTaken 新旧降序；
+ * - 按 userId 持久化元数据缓存：先进缓存（秒开）再网络刷新；
+ * - 全部照片合并时逐相册容错：单个相册 503/无 data 跳过，不影响整体；
+ * - 原图仅查看/下载时经签名直链拉取（含 magic bytes 校验防错误页）。
  */
 class GalleryViewModel(
     private val galleryApi: GalleryApi,
@@ -78,6 +85,8 @@ class GalleryViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** 板块缓存代际：清除凭证后变化，缓存失效需重载。 */
     private val cacheVersion: () -> Int = { 0 },
+    /** 相册元数据持久化缓存（按 userId 隔离），null 表示禁用（测试）。 */
+    private val metadataCache: GalleryMetadataCache? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<GalleryUiState>(GalleryUiState.Idle)
@@ -94,62 +103,111 @@ class GalleryViewModel(
         loadAlbums()
     }
 
-    /** 拉取云端相册列表，按名称文字排序（仅元数据 + 封面缩略图）。 */
+    /** 拉取相册列表：本地缓存秒开 → 网络刷新 → 写缓存。 */
     fun loadAlbums() {
         viewModelScope.launch {
-            _state.value = GalleryUiState.Loading
-            _state.value = withContext(ioDispatcher) {
+            // 1) 本地缓存先显（同一账号重进秒开，至少名称可见）
+            withContext(ioDispatcher) { metadataCache?.loadAlbums() }?.let { cached ->
+                _state.value = GalleryUiState.Albums(cached.sortedWith(ALBUM_NAME_ORDER), fromCache = true)
+            }
+            if (_state.value !is GalleryUiState.Albums) {
+                _state.value = GalleryUiState.Loading
+            }
+            // 2) 网络刷新
+            val fresh = withContext(ioDispatcher) {
                 runCatching { galleryApi.fetchAlbums().sortedWith(ALBUM_NAME_ORDER) }
-            }.fold(
-                onSuccess = { GalleryUiState.Albums(it) },
-                onFailure = { GalleryUiState.Error(it.message ?: "拉取相册失败") },
-            )
+            }
+            fresh.onSuccess { albums ->
+                _state.value = GalleryUiState.Albums(albums)
+                withContext(ioDispatcher) { metadataCache?.saveAlbums(albums) }
+            }
+            fresh.onFailure {
+                val current = _state.value
+                if (current !is GalleryUiState.Albums || current.albums.isEmpty()) {
+                    _state.value = GalleryUiState.Error(it.message ?: "拉取相册失败")
+                }
+                // 有缓存则保留缓存显示（fromCache 已在上面标记）
+            }
         }
     }
 
     /**
-     * 拉取全部照片：合并各普通相册资产，按 dateTaken 新旧降序（最新在最顶）。
-     * 私密相册不并入（需密码单独进入）。
+     * 拉取全部照片：合并各普通相册资产，按 dateTaken 新旧降序。
+     * 单个相册拉取失败（503/无 data）跳过并计数 [GalleryUiState.Photos.failedAlbums]；
+     * 全部失败时回退持久化缓存。
      */
     fun loadAllPhotos() {
         viewModelScope.launch {
             _state.value = GalleryUiState.Photos(emptyList(), loading = true)
             val result = withContext(ioDispatcher) {
                 runCatching {
-                    val albums = galleryApi.fetchAlbums().filterNot { it.isPrivate }
-                    val all = albums.flatMap { album ->
-                        galleryApi.fetchAssets(album.albumId)
+                    val albums = galleryApi.fetchAlbums()
+                        .filterNot { it.isPrivate }
+                        .filter { it.albumId.isNotBlank() }
+                    var failed = 0
+                    val all = mutableListOf<RemoteAsset>()
+                    albums.forEach { album ->
+                        runCatching { galleryApi.fetchAssets(album.albumId) }
+                            .onSuccess { all += it }
+                            .onFailure { failed++ }
                     }
-                    matchRows(all)
+                    Triple(matchRows(all), failed, all)
                 }
             }
-            _state.value = result.fold(
-                onSuccess = { GalleryUiState.Photos(it, loading = false) },
-                onFailure = { GalleryUiState.Error(it.message ?: "拉取照片失败") },
+            result.fold(
+                onSuccess = { (rows, failed, allAssets) ->
+                    _state.value = GalleryUiState.Photos(rows, loading = false, failedAlbums = failed)
+                    withContext(ioDispatcher) {
+                        metadataCache?.saveAllPhotos(allAssets)
+                    }
+                },
+                onFailure = { error ->
+                    val cached = withContext(ioDispatcher) { metadataCache?.loadAllPhotos() }
+                    if (cached != null) {
+                        _state.value = GalleryUiState.Photos(
+                            matchRows(cached), loading = false, stale = true,
+                        )
+                    } else {
+                        _state.value = GalleryUiState.Error(error.message ?: "拉取照片失败")
+                    }
+                },
             )
         }
     }
 
     /**
      * 拉取相册资产清单（含缩略图，不下载原图），与本机媒体库匹配，
-     * 按 dateTaken 新旧降序。
+     * 按 dateTaken 新旧降序；网络失败回退持久化缓存（stale 标记）。
      */
     fun loadAlbum(album: RemoteAlbum) {
         viewModelScope.launch {
             _state.value = GalleryUiState.AlbumAssets(album, emptyList(), loading = true)
             val result = withContext(ioDispatcher) {
-                runCatching {
-                    matchRows(galleryApi.fetchAssets(album.albumId))
-                }
+                runCatching { galleryApi.fetchAssets(album.albumId) }
             }
-            _state.value = result.fold(
-                onSuccess = { GalleryUiState.AlbumAssets(album, it, loading = false) },
-                onFailure = { GalleryUiState.Error(it.message ?: "拉取资产失败") },
+            result.fold(
+                onSuccess = { assets ->
+                    _state.value = GalleryUiState.AlbumAssets(album, matchRows(assets), loading = false)
+                    withContext(ioDispatcher) { metadataCache?.saveAssets(album.albumId, assets) }
+                },
+                onFailure = { error ->
+                    val cached = withContext(ioDispatcher) { metadataCache?.loadAssets(album.albumId) }
+                    if (cached != null) {
+                        _state.value = GalleryUiState.AlbumAssets(
+                            album, matchRows(cached), loading = false, stale = true,
+                        )
+                    } else {
+                        _state.value = GalleryUiState.Error(error.message ?: "拉取资产失败")
+                    }
+                },
             )
         }
     }
 
-    /** 拉取原图到 cacheDir 缓存文件（查看器用）；已缓存则直接复用。失败返回 null。 */
+    /**
+     * 拉取原图到 cacheDir 缓存文件（查看器用）；已缓存则复用。
+     * 校验文件头（JPEG/PNG/GIF/HEIC），错误页（HTML/JSON）视为失败并清除。
+     */
     suspend fun loadOriginal(asset: RemoteAsset, cacheDir: File): File? =
         withContext(ioDispatcher) {
             runCatching {
@@ -159,8 +217,30 @@ class GalleryViewModel(
                 if (!file.exists() || file.length() == 0L) {
                     if (!galleryApi.download(asset.id, file.outputStream())) return@runCatching null
                 }
-                if (file.length() == 0L) null else file
+                if (file.length() == 0L) null
+                else if (looksLikeImage(file)) file
+                else {
+                    file.delete()
+                    null
+                }
             }.getOrNull()
+        }
+
+    /** 文件头魔数校验：防把 JSON/HTML 错误页当图片交给 Coil 无限加载。 */
+    private fun looksLikeImage(file: File): Boolean =
+        file.inputStream().use { input ->
+            val head = ByteArray(12)
+            val n = input.read(head)
+            when {
+                n >= 3 && head[0] == 0xFF.toByte() && head[1] == 0xD8.toByte() -> true // JPEG
+                n >= 8 && head[0] == 0x89.toByte() && head[1] == 'P'.code.toByte() &&
+                    head[2] == 'N'.code.toByte() && head[3] == 'G'.code.toByte() -> true // PNG
+                n >= 4 && head[0] == 'G'.code.toByte() && head[1] == 'I'.code.toByte() &&
+                    head[2] == 'F'.code.toByte() -> true // GIF
+                n >= 12 && head[4] == 'f'.code.toByte() && head[5] == 't'.code.toByte() &&
+                    head[6] == 'y'.code.toByte() && head[7] == 'p'.code.toByte() -> true // HEIC
+                else -> false
+            }
         }
 
     /**
@@ -253,6 +333,7 @@ class GalleryViewModel(
                 localMediaSource = container.localMediaSource,
                 downloadedStore = container.downloadedStore,
                 cacheVersion = container.cacheVersion,
+                metadataCache = container.galleryMetadataCache,
             ) as T
     }
 

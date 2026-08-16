@@ -28,7 +28,7 @@ class GalleryApi(
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
     private val downloader = SignedDownloader(apiClient)
 
-    /** 拉取全部相册（分页，跳过私密相册 1000）。 */
+    /** 拉取全部相册（分页；私密相册 1000 保留并标记 isPrivate）。 */
     fun fetchAlbums(): List<RemoteAlbum> {
         val result = mutableListOf<RemoteAlbum>()
         var pageNum = 0
@@ -46,9 +46,13 @@ class GalleryApi(
             for (i in 0 until (albums?.length() ?: 0)) {
                 val item = albums!!.getJSONObject(i)
                 val albumId = item.optString("albumId")
+                val isPrivate = albumId == PRIVATE_ALBUM_ID
                 result += RemoteAlbum(
                     albumId = albumId,
-                    name = item.optString("name").ifBlank { "未命名相册" },
+                    // 云端私密相册 name 可能为空：固定显示「私密相册」
+                    name = item.optString("name").ifBlank {
+                        if (isPrivate) "私密相册" else "未命名相册"
+                    },
                     mediaCount = item.optInt("mediaCount"),
                     lastUpdateTime = item.optLong("lastUpdateTime"),
                     coverUrls = item.optJSONArray("thumbnails")?.let { arr ->
@@ -57,7 +61,7 @@ class GalleryApi(
                         }
                     } ?: emptyList(),
                     // 私密相册保留在列表中（UI 显示锁并要求密码），不再跳过
-                    isPrivate = albumId == PRIVATE_ALBUM_ID,
+                    isPrivate = isPrivate,
                 )
             }
             if (data.optBoolean("isLastPage")) break
