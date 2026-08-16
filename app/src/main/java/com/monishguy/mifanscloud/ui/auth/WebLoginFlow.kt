@@ -16,6 +16,14 @@ import com.monishguy.mifanscloud.data.auth.XiaomiCredential
 object WebLoginFlow {
 
     const val HOME_URL = "https://i.mi.com/"
+
+    /** 小米云登录链（i.mi.com 主页右上角「登录」的真实跳转目标）：登录成功后 302 回 i.mi.com。 */
+    const val LOGIN_URL =
+        "https://account.xiaomi.com/pass/serviceLogin" +
+            "?sid=i.mi.com" +
+            "&callback=https%3A%2F%2Fi.mi.com%2F" +
+            "&_locale=zh_CN"
+
     const val GALLERY_URL = "https://i.mi.com/gallery/h5#/"
 
     sealed interface Decision {
