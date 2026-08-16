@@ -96,8 +96,9 @@ app/
 
 - [x] **M1 调研**：三个参考项目源码级 API 调研 → `docs/XIAOMI-CLOUD-API.md`
 - [x] **M2 认证闭环**：凭证配置（粘贴 Cookie/手动）、Keystore 加密存储、serviceToken 10 分钟刷新、401 重发、Compose 登录/状态页 ✅ 已交付（2026-08）
-- [x] **M2.1 WebView 内嵌登录**：内嵌浏览器登录 i.mi.com，自动检测登录态、跳相册页触发设备验证、提取 Cookie ✅ 已交付（需真机验证小米登录页是否放行 WebView）
-- [ ] **M3 相册下载**：相册列表 → 资产列表 → 增量下载 → sha1 校验（对齐 XiaomiAlbumSyncer）
+- [x] **M2.1 WebView 内嵌登录**：内嵌浏览器登录 i.mi.com，自动检测登录态、跳相册页触发设备验证、提取 Cookie ✅ 已交付（真机验证；该 ROM WebView 白屏为渲染问题，手动粘贴路径不受影响）
+- [x] **M2.2 serviceToken 直连模式**：无 passToken 的已登录 Cookie 直接可用（跳过换取链）✅ 已交付（真机端到端验证通过）
+- [x] **M3 相册智能同步**：纯缩略图浏览（清单自带 URL/base64 缩略图）、本机两级匹配（dateTaken+size / sha1）、徽标区分「本机已有/云端新增/已下载」、按需下载原图到 SAF 备份文件夹 ✅ 已交付（57 单元测试全绿）
 - [ ] **M4 录音下载**：录音列表 → 下载 + 文件名解析
 - [ ] **M5 通讯录 / 笔记 / 短信**：清单拉取 + 本地存储（JSON/文件导出）
 - [ ] **M6 上传方向**：抓包逆向上传接口（相册上传、笔记同步）
@@ -107,11 +108,11 @@ app/
 ## 构建与测试
 
 ```bash
-./gradlew :app:testDebugUnitTest   # 单元测试（MockWebServer 模拟小米三步换取链）
+./gradlew :app:testDebugUnitTest   # 单元测试（57 个，MockWebServer 模拟小米接口）
 ./gradlew :app:assembleDebug       # 编译 debug APK
 ```
 
-M2 的认证逻辑全部经本地 mock 验证（不依赖真实账号）；真机安装后由用户自行填入自己的 i.mi.com Cookie 做端到端验证。
+认证与相册逻辑全部经本地 mock 验证（不依赖真实账号）；真机安装后由用户填入自己的 i.mi.com Cookie 做端到端验证（已通过：粘贴 Cookie → 主页 → 相册浏览）。
 
 ---
 
