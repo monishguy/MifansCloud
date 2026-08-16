@@ -1,11 +1,11 @@
 package com.monishguy.mifanscloud.data.gallery
 
-import com.monishguy.mifanscloud.data.remote.JsonpParser
+import com.monishguy.mifanscloud.data.remote.DownloadSpec
+import com.monishguy.mifanscloud.data.remote.MediaDeletedException
+import com.monishguy.mifanscloud.data.remote.SignedDownloader
 import com.monishguy.mifanscloud.data.remote.XiaomiApiClient
-import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
 import org.json.JSONObject
 import java.io.OutputStream
 
@@ -26,6 +26,7 @@ class GalleryApi(
 ) {
 
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
+    private val downloader = SignedDownloader(apiClient)
 
     /** 拉取全部相册（分页，跳过私密相册 1000）。 */
     fun fetchAlbums(): List<RemoteAlbum> {
@@ -115,45 +116,18 @@ class GalleryApi(
             .addQueryParameter("ts", clock().toString())
             .addQueryParameter("id", assetId)
             .build()
-        val json = getJson(url.toString())
-        val code = json.optInt("code")
-        if (code == 50050) throw MediaDeletedException(assetId)
-        val ossUrl = json.optJSONObject("data")?.optString("url")
-            ?: throw IllegalStateException("storage 响应缺少 url (code=$code)")
-
-        // ② 请求签名中转页 → JSONP {url, meta}
-        val jsonp = apiClient.execute(Request.Builder().url(ossUrl).get().build())
-        jsonp.use { resp ->
-            if (!resp.isSuccessful) throw IllegalStateException("签名中转页 HTTP ${resp.code}")
-            val obj = JSONObject(JsonpParser.unwrap(resp.body?.string().orEmpty()))
-            val downloadUrl = obj.optString("url")
-            val meta = obj.optString("meta")
-            if (downloadUrl.isBlank() || meta.isBlank()) {
-                throw IllegalStateException("JSONP 响应缺少 url/meta")
-            }
-            return DownloadSpec(downloadUrl, meta)
-        }
+        return downloader.resolveStorage(url.toString())
     }
 
     /**
      * 下载原图到 [target]（签名直链三步流），返回是否成功（false=云端已删除跳过）。
      * 流式输出到任意 [OutputStream]（文件 / SAF / 测试内存流），由调用方关闭。
      */
-    fun download(assetId: String, target: OutputStream): Boolean {
-        val spec = try {
-            resolveDownload(assetId)
-        } catch (e: MediaDeletedException) {
-            return false
-        }
-        val body = FormBody.Builder().add("meta", spec.meta).build()
-        val resp = apiClient.execute(Request.Builder().url(spec.url).post(body).build())
-        resp.use { r ->
-            if (!r.isSuccessful) throw IllegalStateException("下载失败 HTTP ${r.code}")
-            val stream = r.body?.byteStream()
-                ?: throw IllegalStateException("下载响应为空")
-            stream.use { input -> input.copyTo(target, BUFFER_SIZE) }
-        }
-        return true
+    fun download(assetId: String, target: OutputStream): Boolean = try {
+        downloader.download(resolveDownload(assetId), target)
+        true
+    } catch (e: MediaDeletedException) {
+        false
     }
 
     private fun getData(url: String): JSONObject =
@@ -161,7 +135,7 @@ class GalleryApi(
             ?: throw IllegalStateException("响应缺少 data 字段")
 
     private fun getJson(url: String): JSONObject =
-        apiClient.execute(Request.Builder().url(url).get().build()).use { resp ->
+        apiClient.execute(okhttp3.Request.Builder().url(url).get().build()).use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("请求失败 HTTP ${resp.code}: $url")
             JSONObject(resp.body?.string().orEmpty())
         }
@@ -185,6 +159,5 @@ class GalleryApi(
 
     private companion object {
         const val PRIVATE_ALBUM_ID = "1000"
-        const val BUFFER_SIZE = 8192
     }
 }

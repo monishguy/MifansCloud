@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -36,6 +37,8 @@ import com.monishguy.mifanscloud.ui.gallery.AlbumAssetsScreen
 import com.monishguy.mifanscloud.ui.gallery.AlbumsScreen
 import com.monishguy.mifanscloud.ui.gallery.GalleryViewModel
 import com.monishguy.mifanscloud.ui.home.HomeScreen
+import com.monishguy.mifanscloud.ui.recording.RecordingsScreen
+import com.monishguy.mifanscloud.ui.recording.RecordingsViewModel
 import com.monishguy.mifanscloud.ui.theme.米饭云服务Theme
 
 class MainActivity : ComponentActivity() {
@@ -57,11 +60,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 顶层页面栈：主页 / 相册列表 / 相册内资产。 */
+/** 顶层页面栈：主页 / 相册列表 / 相册内资产 / 录音。 */
 private sealed interface Screen {
     data object Home : Screen
     data object Albums : Screen
     data class AlbumAssets(val album: RemoteAlbum) : Screen
+    data object Recordings : Screen
 }
 
 @Composable
@@ -71,6 +75,7 @@ private fun MainScaffold(
     ready: AuthUiState.Ready,
 ) {
     val galleryViewModel: GalleryViewModel = viewModel(factory = GalleryViewModel.Factory(container))
+    val recordingsViewModel: RecordingsViewModel = viewModel(factory = RecordingsViewModel.Factory(container))
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
 
     val assets = screen as? Screen.AlbumAssets
@@ -99,6 +104,12 @@ private fun MainScaffold(
                     icon = { Icon(Icons.Filled.List, contentDescription = "相册") },
                     label = { Text("相册") },
                 )
+                NavigationBarItem(
+                    selected = screen == Screen.Recordings,
+                    onClick = { screen = Screen.Recordings },
+                    icon = { Icon(Icons.Filled.Call, contentDescription = "录音") },
+                    label = { Text("录音") },
+                )
             }
         },
     ) { innerPadding ->
@@ -109,6 +120,7 @@ private fun MainScaffold(
                     viewModel = galleryViewModel,
                     onOpenAlbum = { album -> screen = Screen.AlbumAssets(album) },
                 )
+                Screen.Recordings -> RecordingsScreen(viewModel = recordingsViewModel)
                 is Screen.AlbumAssets -> Unit // 上面已单独处理
             }
         }

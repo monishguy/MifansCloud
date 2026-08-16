@@ -84,7 +84,7 @@ class GalleryViewModel(
                 runCatching {
                     val assets = galleryApi.fetchAssets(album.albumId)
                     val local = localMediaSource.queryImagesAndVideos()
-                    val statuses = CloudLocalMatcher.match(assets, local, downloadedStore.ids())
+                    val statuses = CloudLocalMatcher.match(assets, local, downloadedStore.ids(GALLERY_NS))
                     assets.map { asset ->
                         AssetRow(asset, statuses[asset.id] ?: MatchStatus.NEW)
                     }
@@ -110,7 +110,7 @@ class GalleryViewModel(
                 }.getOrDefault(false)
             }
             if (ok) {
-                downloadedStore.add(asset.id, asset.fileName)
+                downloadedStore.add(GALLERY_NS, asset.id, asset.fileName)
                 onCompleted()
                 loadAlbum((_state.value as? GalleryUiState.AlbumAssets)?.album ?: return@launch)
             } else {
@@ -135,5 +135,9 @@ class GalleryViewModel(
                 localMediaSource = container.localMediaSource,
                 downloadedStore = container.downloadedStore,
             ) as T
+    }
+
+    private companion object {
+        const val GALLERY_NS = "gallery"
     }
 }

@@ -7,37 +7,40 @@ import org.junit.Test
 import java.io.File
 
 /**
- * DownloadedStore seam：已下载清单的增查与跨实例持久化。
+ * DownloadedStore seam：命名空间隔离的已下载清单增查与跨实例持久化。
  */
 class DownloadedStoreTest {
 
     @Test
-    fun `新增后可查询 id 与文件名`() {
+    fun `命名空间隔离：同 id 不同命名空间互不干扰`() {
         val store = DownloadedStore(File.createTempFile("dlt", ".json").apply { deleteOnExit() })
 
-        store.add("9001", "a.jpg")
-        store.add("9002", "b.jpg")
+        store.add("gallery", "9001", "a.jpg")
+        store.add("recording", "9001", "rec.m4a")
 
-        assertEquals(setOf("9001", "9002"), store.ids())
-        assertEquals("a.jpg", store.fileNameOf("9001"))
+        assertEquals(setOf("9001"), store.ids("gallery"))
+        assertEquals(setOf("9001"), store.ids("recording"))
+        assertEquals("a.jpg", store.fileNameOf("gallery", "9001"))
+        assertEquals("rec.m4a", store.fileNameOf("recording", "9001"))
+        assertNull(store.fileNameOf("recording", "a.jpg"))
     }
 
     @Test
     fun `跨实例持久化（重新读取同一文件）`() {
         val file = File.createTempFile("dlt", ".json").apply { deleteOnExit() }
-        DownloadedStore(file).add("9001", "a.jpg")
+        DownloadedStore(file).add("gallery", "9001", "a.jpg")
 
         val reloaded = DownloadedStore(file)
 
-        assertTrue("9001" in reloaded.ids())
-        assertEquals("a.jpg", reloaded.fileNameOf("9001"))
+        assertTrue("9001" in reloaded.ids("gallery"))
+        assertEquals("a.jpg", reloaded.fileNameOf("gallery", "9001"))
     }
 
     @Test
     fun `空文件与不存在文件返回空`() {
         val store = DownloadedStore(File.createTempFile("dlt", ".json").apply { deleteOnExit() })
 
-        assertTrue(store.ids().isEmpty())
-        assertNull(store.fileNameOf("9001"))
+        assertTrue(store.ids("gallery").isEmpty())
+        assertNull(store.fileNameOf("gallery", "9001"))
     }
 }

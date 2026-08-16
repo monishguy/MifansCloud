@@ -9,6 +9,7 @@ import com.monishguy.mifanscloud.data.auth.SecureCredentialStore
 import com.monishguy.mifanscloud.data.auth.XiaomiAuthService
 import com.monishguy.mifanscloud.data.auth.XiaomiCredential
 import com.monishguy.mifanscloud.data.gallery.GalleryApi
+import com.monishguy.mifanscloud.data.recording.RecordingApi
 import com.monishguy.mifanscloud.data.remote.XiaomiApiClient
 import com.monishguy.mifanscloud.data.sync.DownloadedStore
 import com.monishguy.mifanscloud.data.sync.LocalMediaSource
@@ -67,6 +68,11 @@ class AppContainer(context: Context) {
     )
 
     val galleryApi: GalleryApi = GalleryApi(
+        apiClient = apiClient,
+        baseUrl = BASE_URL,
+    )
+
+    val recordingApi: RecordingApi = RecordingApi(
         apiClient = apiClient,
         baseUrl = BASE_URL,
     )

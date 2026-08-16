@@ -7,7 +7,8 @@ import java.io.File
 /**
  * 「已下载到本工具」清单持久化（JSON 文件，app 私有目录）。
  *
- * 记录 云端资产 id → 本地文件名，用于：
+ * 记录 云端资产 id → 本地文件名，**按数据类型命名空间隔离**
+ * （相册 `gallery:` / 录音 `recording:`，避免不同云的 id 撞车），用于：
  * - [CloudLocalMatcher] 的 DOWNLOADED 状态（优先于「本机已有」）；
  * - 下载去重（已下载不再重复下载）。
  *
@@ -20,20 +21,21 @@ class DownloadedStore(private val file: File) {
 
     /** 记录一次下载完成。 */
     @Synchronized
-    fun add(id: String, fileName: String) {
+    fun add(namespace: String, id: String, fileName: String) {
         val updated = entries().toMutableMap()
-        updated[id] = fileName
+        updated[key(namespace, id)] = fileName
         cache = updated
         write(updated)
     }
 
-    /** 已下载的云端资产 id 集合。 */
+    /** 指定命名空间下已下载的云端资产 id 集合。 */
     @Synchronized
-    fun ids(): Set<String> = entries().keys
+    fun ids(namespace: String): Set<String> =
+        entries().keys.mapNotNull { unkey(namespace, it) }.toSet()
 
     /** 已下载资产对应的本地文件名。 */
     @Synchronized
-    fun fileNameOf(id: String): String? = entries()[id]
+    fun fileNameOf(namespace: String, id: String): String? = entries()[key(namespace, id)]
 
     private fun entries(): Map<String, String> {
         cache?.let { return it }
@@ -58,4 +60,9 @@ class DownloadedStore(private val file: File) {
         file.parentFile?.mkdirs()
         file.writeText(arr.toString())
     }
+
+    private fun key(namespace: String, id: String): String = "$namespace:$id"
+
+    private fun unkey(namespace: String, key: String): String? =
+        if (key.startsWith("$namespace:")) key.removePrefix("$namespace:") else null
 }

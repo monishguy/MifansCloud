@@ -170,7 +170,7 @@ class GalleryViewModelTest {
             advanceUntilIdle()
 
             assertTrue(completed)
-            assertEquals(setOf("9001"), store.ids())
+            assertEquals(setOf("9001"), store.ids("gallery"))
             val refreshed = vm.state.value as GalleryUiState.AlbumAssets
             assertEquals(MatchStatus.DOWNLOADED, refreshed.assets[0].status)
         }

@@ -2,6 +2,7 @@ package com.monishguy.mifanscloud.data.gallery
 
 import com.monishguy.mifanscloud.data.auth.XiaomiAuthService
 import com.monishguy.mifanscloud.data.auth.XiaomiCredential
+import com.monishguy.mifanscloud.data.remote.MediaDeletedException
 import com.monishguy.mifanscloud.data.remote.XiaomiApiClient
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse

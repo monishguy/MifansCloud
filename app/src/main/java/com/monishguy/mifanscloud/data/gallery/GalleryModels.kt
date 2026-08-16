@@ -34,13 +34,3 @@ data class AlbumTimeline(
     val indexHash: String,
     val dayCount: Map<String, Long>,
 )
-
-/** 签名直链下载规格：POST `url` + form `meta` 得到文件流。 */
-data class DownloadSpec(
-    val url: String,
-    val meta: String,
-)
-
-/** 云端文件已删除（storage 返回 code=50050），调用方应跳过并标记。 */
-class MediaDeletedException(assetId: String) :
-    Exception("云端文件已删除: $assetId")
