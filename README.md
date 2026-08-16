@@ -96,6 +96,7 @@ app/
 
 - [x] **M1 调研**：三个参考项目源码级 API 调研 → `docs/XIAOMI-CLOUD-API.md`
 - [x] **M2 认证闭环**：凭证配置（粘贴 Cookie/手动）、Keystore 加密存储、serviceToken 10 分钟刷新、401 重发、Compose 登录/状态页 ✅ 已交付（2026-08）
+- [x] **M2.1 WebView 内嵌登录**：内嵌浏览器登录 i.mi.com，自动检测登录态、跳相册页触发设备验证、提取 Cookie ✅ 已交付（需真机验证小米登录页是否放行 WebView）
 - [ ] **M3 相册下载**：相册列表 → 资产列表 → 增量下载 → sha1 校验（对齐 XiaomiAlbumSyncer）
 - [ ] **M4 录音下载**：录音列表 → 下载 + 文件名解析
 - [ ] **M5 通讯录 / 笔记 / 短信**：清单拉取 + 本地存储（JSON/文件导出）

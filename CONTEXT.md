@@ -18,7 +18,8 @@
 ## 决策记录（ADR）
 
 ### ADR-001 认证方式：手动粘贴为主，WebView 增强
-用户决策（2026-08）。第一迭代实现「粘贴整段 Cookie 自动解析 / 手动填写」；WebView 内嵌登录为第二迭代。理由：手动粘贴零风险、对齐双参考项目；小米登录页可能拒绝 WebView。
+用户决策（2026-08）。第一迭代实现「粘贴整段 Cookie 自动解析 / 手动填写」；**WebView 内嵌登录为第二迭代（M2.1，已实现）**：内嵌浏览器登录 i.mi.com，自动检测登录态并跳相册页触发设备验证，提取 Cookie 后复用同一换取链。WebView 会话在提取后立即清除（`CookieManager.removeAllCookies`），凭证只经内存传递。
+风险（实测待验证）：小米登录页可能通过 UA 指纹 / 验证码交互阻止 WebView 会话——需真机验证。
 
 ### ADR-002 serviceToken 生命周期：10 分钟强制刷新 + 401 重发一次
 对齐 XiaomiAlbumSyncer `TokenManager`（内存缓存 + 10 分钟）与 MiCloud（401 自动重登）。刷新失败不静默重试，UI 提示重新配置。

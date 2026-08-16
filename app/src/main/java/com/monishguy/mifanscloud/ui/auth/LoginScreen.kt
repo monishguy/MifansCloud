@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,8 +33,8 @@ import androidx.compose.ui.unit.dp
 private enum class InputMode { Cookie, Manual }
 
 /**
- * 登录/配置页：粘贴整段 Cookie（推荐）或手动填写 userId/passToken，
- * 保存后立即验证 serviceToken 换取链。
+ * 登录/配置页：粘贴整段 Cookie（推荐）、手动填写 userId/passToken，
+ * 或使用 WebView 内嵌浏览器登录；保存后立即验证 serviceToken 换取链。
  */
 @Composable
 fun LoginScreen(
@@ -41,6 +42,15 @@ fun LoginScreen(
     initialError: String?,
     modifier: Modifier = Modifier,
 ) {
+    var webLoginOpen by remember { mutableStateOf(false) }
+    if (webLoginOpen) {
+        WebViewLoginScreen(
+            viewModel = viewModel,
+            onClose = { webLoginOpen = false },
+        )
+        return
+    }
+
     var mode by remember { mutableStateOf(InputMode.Cookie) }
     var cookieText by remember { mutableStateOf("") }
     var userId by remember { mutableStateOf("") }
@@ -150,6 +160,14 @@ fun LoginScreen(
             } else {
                 Text("保存并验证")
             }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        TextButton(
+            onClick = { webLoginOpen = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("或使用浏览器登录 i.mi.com")
         }
     }
 }
