@@ -2,8 +2,8 @@ package com.monishguy.mifanscloud.ui.recording
 
 import android.content.Intent
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.monishguy.mifanscloud.data.local.SafHelper
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -210,12 +210,10 @@ private fun createRecordingDocument(
     contentResolver: android.content.ContentResolver,
     treeUri: String,
     recording: RemoteRecording,
-): Uri? = runCatching {
-    DocumentsContract.createDocument(
-        contentResolver,
-        Uri.parse(treeUri),
-        "audio/mp4",
-        recording.fileName.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_"),
-    )
-}.getOrNull()
+): Uri? = SafHelper.createDocument(
+    contentResolver,
+    treeUri,
+    "audio/mp4",
+    recording.fileName.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_"),
+)
 

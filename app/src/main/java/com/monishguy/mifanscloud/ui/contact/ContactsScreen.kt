@@ -1,9 +1,8 @@
 package com.monishguy.mifanscloud.ui.contact
 
 import android.content.Intent
-import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.monishguy.mifanscloud.data.local.SafHelper
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -95,8 +94,8 @@ fun ContactsScreen(
                         folderError = "请先选择保存目录"
                         pickFolder.launch(null)
                     } else {
-                        val uri = DocumentsContract.createDocument(
-                            contentResolver, Uri.parse(folder), "application/json", "contacts.json",
+                        val uri = SafHelper.createDocument(
+                            contentResolver, folder, "application/json", "contacts.json",
                         )
                         if (uri != null) {
                             viewModel.exportJson { contentResolver.openOutputStream(uri)!! }

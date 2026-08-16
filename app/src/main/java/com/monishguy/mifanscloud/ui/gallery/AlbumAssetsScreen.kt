@@ -5,8 +5,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.DocumentsContract
 import androidx.activity.compose.BackHandler
+import com.monishguy.mifanscloud.data.local.SafHelper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -250,19 +250,17 @@ private fun mediaPermissions(): Array<String> =
         arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
 
-/** 在 SAF 树里创建目标文件，返回可写 URI（DocumentsContract 静态 API，免额外依赖）。 */
+/** 在 SAF 树里创建目标文件，返回可写 URI（tree 需先转 document URI，见 SafHelper）。 */
 private fun createDocument(
     contentResolver: android.content.ContentResolver,
     treeUri: String,
     asset: RemoteAsset,
-): Uri? = runCatching {
-    DocumentsContract.createDocument(
-        contentResolver,
-        Uri.parse(treeUri),
-        asset.mimeType.ifBlank { "application/octet-stream" },
-        sanitizeFileName(asset.fileName),
-    )
-}.getOrNull()
+): Uri? = SafHelper.createDocument(
+    contentResolver,
+    treeUri,
+    asset.mimeType.ifBlank { "application/octet-stream" },
+    sanitizeFileName(asset.fileName),
+)
 
 private fun sanitizeFileName(name: String): String =
     name.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_")
