@@ -95,7 +95,7 @@ app/
 ## 开发路线图
 
 - [x] **M1 调研**：三个参考项目源码级 API 调研 → `docs/XIAOMI-CLOUD-API.md`
-- [ ] **M2 认证闭环**：WebView 登录 + Cookie 提取/存储/续期（401 自动重登）
+- [x] **M2 认证闭环**：凭证配置（粘贴 Cookie/手动）、Keystore 加密存储、serviceToken 10 分钟刷新、401 重发、Compose 登录/状态页 ✅ 已交付（2026-08）
 - [ ] **M3 相册下载**：相册列表 → 资产列表 → 增量下载 → sha1 校验（对齐 XiaomiAlbumSyncer）
 - [ ] **M4 录音下载**：录音列表 → 下载 + 文件名解析
 - [ ] **M5 通讯录 / 笔记 / 短信**：清单拉取 + 本地存储（JSON/文件导出）
@@ -103,12 +103,22 @@ app/
 - [ ] **M7 定时同步**：WorkManager + 前台服务（Android 12+ 限制）
 - [ ] **M8 双向冲突处理 / 删除同步**（按需）
 
+## 构建与测试
+
+```bash
+./gradlew :app:testDebugUnitTest   # 单元测试（MockWebServer 模拟小米三步换取链）
+./gradlew :app:assembleDebug       # 编译 debug APK
+```
+
+M2 的认证逻辑全部经本地 mock 验证（不依赖真实账号）；真机安装后由用户自行填入自己的 i.mi.com Cookie 做端到端验证。
+
 ---
 
 ## 文档索引
 
 | 文档 | 说明 |
 | --- | --- |
+| [`CONTEXT.md`](CONTEXT.md) | 领域词汇表 + 决策记录（ADR-001~006），开发前先读 |
 | [`docs/XIAOMI-CLOUD-API.md`](docs/XIAOMI-CLOUD-API.md) | **小米云 API 调研文档**：认证、端点目录、下载/上传机制、增量同步、Android 实现要点（核心文档） |
 | [`xiaomi-album-syncer-research/XiaomiAlbumSyncer-xiaomi-cloud-technical-map.md`](xiaomi-album-syncer-research/XiaomiAlbumSyncer-xiaomi-cloud-technical-map.md) | XiaomiAlbumSyncer 专项技术地图（子代理产出）：TokenManager 换取链、全部端点、增量模式、调度/通知/Exif 等完整实现剖析 |
 | `research/xiaomi-cloud/xiaomi-cloud-api-clients.md` | mi-service-lite 与 MiCloud 的源码级调研报告（子代理产出，含逐文件引用） |
