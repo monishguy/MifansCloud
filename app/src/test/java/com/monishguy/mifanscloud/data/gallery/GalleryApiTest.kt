@@ -70,12 +70,15 @@ class GalleryApiTest {
 
         val albums = api.fetchAlbums()
 
-        assertEquals(2, albums.size) // 私密相册 1000 被跳过
+        assertEquals(3, albums.size) // 私密相册 1000 保留在列表（标记 isPrivate，UI 密码门）
         assertEquals("1", albums[0].albumId)
         assertEquals("相机", albums[0].name)
         assertEquals(100, albums[0].mediaCount)
         assertEquals(listOf("http://cover/1"), albums[0].coverUrls)
-        assertEquals("2", albums[1].albumId)
+        assertFalse(albums[0].isPrivate)
+        assertEquals("1000", albums[1].albumId)
+        assertTrue("私密相册应标记 isPrivate", albums[1].isPrivate)
+        assertEquals("2", albums[2].albumId)
 
         val first = server.takeRequest()
         assertEquals("/gallery/user/album/list", first.path?.substringBefore("?"))

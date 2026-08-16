@@ -122,8 +122,176 @@ class GalleryViewModelTest {
 
             val state = vm.state.value as GalleryUiState.AlbumAssets
             assertEquals(2, state.assets.size)
-            assertEquals(MatchStatus.LOCAL_ALREADY, state.assets[0].status)
-            assertEquals(MatchStatus.NEW, state.assets[1].status)
+            // 排序后（dateTaken 降序）：9002(2000000) 在前为 NEW，9001(1000000) 匹配本机
+            val byId = state.assets.associate { it.asset.id to it.status }
+            assertEquals(MatchStatus.LOCAL_ALREADY, byId["9001"])
+            assertEquals(MatchStatus.NEW, byId["9002"])
+        }
+    }
+
+    @Test
+    fun `相册列表按名称文字排序`() = runTest {
+        withMainDispatcher {
+            server.enqueue(
+                MockResponse().setBody(
+                    """{"data":{"albums":[
+                        {"albumId":"2","name":"B 相册","mediaCount":1,"lastUpdateTime":2,"thumbnails":[]},
+                        {"albumId":"1","name":"A 相册","mediaCount":1,"lastUpdateTime":1,"thumbnails":[]}
+                    ],"isLastPage":true}}"""
+                )
+            )
+            val vm = GalleryViewModel(
+                api, FakeLocalMediaSource(emptyList()), store,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+
+            vm.loadAlbums()
+            advanceUntilIdle()
+
+            val state = vm.state.value as GalleryUiState.Albums
+            assertEquals(listOf("A 相册", "B 相册"), state.albums.map { it.name })
+        }
+    }
+
+    @Test
+    fun `相册内资产按 dateTaken 新旧降序`() = runTest {
+        withMainDispatcher {
+            server.enqueue(
+                MockResponse().setBody(
+                    """{"data":{"galleries":[
+                        {"id":"1","fileName":"a.jpg","title":"A","type":"image",
+                         "mimeType":"image/jpeg","size":1000,"sha1":"s1","dateTaken":1000,
+                         "thumbnailInfo":null},
+                        {"id":"2","fileName":"b.jpg","title":"B","type":"image",
+                         "mimeType":"image/jpeg","size":1000,"sha1":"s2","dateTaken":3000,
+                         "thumbnailInfo":null},
+                        {"id":"3","fileName":"c.jpg","title":"C","type":"image",
+                         "mimeType":"image/jpeg","size":1000,"sha1":"s3","dateTaken":2000,
+                         "thumbnailInfo":null}
+                    ],"isLastPage":true}}"""
+                )
+            )
+            val vm = GalleryViewModel(
+                api, FakeLocalMediaSource(emptyList()), store,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+
+            vm.loadAlbum(RemoteAlbum("1", "相机", 3, 11, emptyList()))
+            advanceUntilIdle()
+
+            val state = vm.state.value as GalleryUiState.AlbumAssets
+            assertEquals(listOf("2", "3", "1"), state.assets.map { it.asset.id })
+        }
+    }
+
+    @Test
+    fun `全部照片合并各相册并按新旧降序、排除私密相册`() = runTest {
+        withMainDispatcher {
+            // 1) 相册列表：相册 1、相册 2、私密相册 1000
+            server.enqueue(
+                MockResponse().setBody(
+                    """{"data":{"albums":[
+                        {"albumId":"1","name":"A","mediaCount":2,"lastUpdateTime":1,"thumbnails":[]},
+                        {"albumId":"2","name":"B","mediaCount":1,"lastUpdateTime":2,"thumbnails":[]},
+                        {"albumId":"1000","name":"私密","mediaCount":9,"lastUpdateTime":3,"thumbnails":[]}
+                    ],"isLastPage":true}}"""
+                )
+            )
+            // 2) 相册 1 资产
+            server.enqueue(
+                MockResponse().setBody(
+                    """{"data":{"galleries":[
+                        {"id":"11","fileName":"a.jpg","title":"A","type":"image",
+                         "mimeType":"image/jpeg","size":1,"sha1":"s","dateTaken":1000,
+                         "thumbnailInfo":null},
+                        {"id":"12","fileName":"b.jpg","title":"B","type":"image",
+                         "mimeType":"image/jpeg","size":1,"sha1":"s","dateTaken":4000,
+                         "thumbnailInfo":null}
+                    ],"isLastPage":true}}"""
+                )
+            )
+            // 3) 相册 2 资产
+            server.enqueue(
+                MockResponse().setBody(
+                    """{"data":{"galleries":[
+                        {"id":"21","fileName":"c.jpg","title":"C","type":"image",
+                         "mimeType":"image/jpeg","size":1,"sha1":"s","dateTaken":2000,
+                         "thumbnailInfo":null}
+                    ],"isLastPage":true}}"""
+                )
+            )
+            val vm = GalleryViewModel(
+                api, FakeLocalMediaSource(emptyList()), store,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+
+            vm.loadAllPhotos()
+            advanceUntilIdle()
+
+            val state = vm.state.value as GalleryUiState.Photos
+            // 按 dateTaken 降序：12(4000) > 21(2000) > 11(1000)；私密相册资产不并入
+            assertEquals(listOf("12", "21", "11"), state.assets.map { it.asset.id })
+            assertEquals(false, state.loading)
+        }
+    }
+
+    @Test
+    fun `批量下载按顺序执行、进度回调并写入存储`() = runTest {
+        withMainDispatcher {
+            server.enqueue(
+                MockResponse().setBody(
+                    """{"data":{"galleries":[
+                        {"id":"9001","fileName":"a.jpg","title":"A","type":"image",
+                         "mimeType":"image/jpeg","size":1000,"sha1":"s1","dateTaken":1000000,
+                         "thumbnailInfo":null},
+                        {"id":"9002","fileName":"b.jpg","title":"B","type":"image",
+                         "mimeType":"image/jpeg","size":2000,"sha1":"s2","dateTaken":2000000,
+                         "thumbnailInfo":null}
+                    ],"isLastPage":true}}"""
+                )
+            )
+            val vm = GalleryViewModel(
+                api, FakeLocalMediaSource(emptyList()), store,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+            val album = RemoteAlbum("1", "相机", 2, 11, emptyList())
+            vm.loadAlbum(album)
+            advanceUntilIdle()
+            val assets = (vm.state.value as GalleryUiState.AlbumAssets).assets.map { it.asset }
+
+            // 每张 3 个下载链响应（storage → JSONP → 文件流）
+            repeat(2) { i ->
+                server.enqueue(MockResponse().setBody("""{"code":0,"data":{"url":"${server.url("/oss$i")}"}}"""))
+                server.enqueue(MockResponse().setBody("""dl_callback({"url":"${server.url("/dl$i")}","meta":"m$i"})"""))
+                server.enqueue(MockResponse().setBody("BYTES-$i"))
+            }
+            // downloadAssets 完成后 refreshCurrent 会重新拉取清单
+            server.enqueue(
+                MockResponse().setBody(
+                    """{"data":{"galleries":[
+                        {"id":"9001","fileName":"a.jpg","title":"A","type":"image",
+                         "mimeType":"image/jpeg","size":1000,"sha1":"s1","dateTaken":1000000,
+                         "thumbnailInfo":null},
+                        {"id":"9002","fileName":"b.jpg","title":"B","type":"image",
+                         "mimeType":"image/jpeg","size":2000,"sha1":"s2","dateTaken":2000000,
+                         "thumbnailInfo":null}
+                    ],"isLastPage":true}}"""
+                )
+            )
+            val progress = mutableListOf<Pair<Int, Int>>()
+            var completed = false
+
+            vm.downloadAssets(
+                assets = assets,
+                outputProvider = { ByteArrayOutputStream() },
+                onProgress = { done, total -> progress += done to total },
+                onCompleted = { completed = true },
+            )
+            advanceUntilIdle()
+
+            assertTrue(completed)
+            assertEquals(listOf(1 to 2, 2 to 2), progress)
+            assertEquals(setOf("9001", "9002"), store.ids("gallery"))
         }
     }
 

@@ -45,9 +45,9 @@ class GalleryApi(
             val albums = data.optJSONArray("albums")
             for (i in 0 until (albums?.length() ?: 0)) {
                 val item = albums!!.getJSONObject(i)
-                if (item.optString("albumId") == PRIVATE_ALBUM_ID) continue // 私密相册
+                val albumId = item.optString("albumId")
                 result += RemoteAlbum(
-                    albumId = item.optString("albumId"),
+                    albumId = albumId,
                     name = item.optString("name").ifBlank { "未命名相册" },
                     mediaCount = item.optInt("mediaCount"),
                     lastUpdateTime = item.optLong("lastUpdateTime"),
@@ -56,6 +56,8 @@ class GalleryApi(
                             arr.optJSONObject(j)?.optString("url")?.takeIf { it.isNotBlank() }
                         }
                     } ?: emptyList(),
+                    // 私密相册保留在列表中（UI 显示锁并要求密码），不再跳过
+                    isPrivate = albumId == PRIVATE_ALBUM_ID,
                 )
             }
             if (data.optBoolean("isLastPage")) break

@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.monishguy.mifanscloud.data.gallery.RemoteAlbum
+import com.monishguy.mifanscloud.data.gallery.RemoteAsset
 import com.monishguy.mifanscloud.data.local.SaveDirStore
 import com.monishguy.mifanscloud.ui.auth.AuthUiState
 import com.monishguy.mifanscloud.ui.auth.AuthViewModel
@@ -34,8 +35,9 @@ import com.monishguy.mifanscloud.ui.auth.LoginScreen
 import com.monishguy.mifanscloud.ui.contact.ContactsScreen
 import com.monishguy.mifanscloud.ui.contact.ContactsViewModel
 import com.monishguy.mifanscloud.ui.gallery.AlbumAssetsScreen
-import com.monishguy.mifanscloud.ui.gallery.AlbumsScreen
+import com.monishguy.mifanscloud.ui.gallery.GallerySectionScreen
 import com.monishguy.mifanscloud.ui.gallery.GalleryViewModel
+import com.monishguy.mifanscloud.ui.gallery.PhotoViewerScreen
 import com.monishguy.mifanscloud.ui.note.NotesScreen
 import com.monishguy.mifanscloud.ui.note.NotesViewModel
 import com.monishguy.mifanscloud.ui.recording.RecordingsScreen
@@ -70,6 +72,10 @@ private sealed interface Screen {
     data object Settings : Screen
     data object AlbumSection : Screen
     data class AlbumAssets(val album: RemoteAlbum) : Screen
+
+    /** 全屏原图查看器：返回回到 [backTo] 来源页。 */
+    data class PhotoView(val asset: RemoteAsset, val backTo: Screen) : Screen
+
     data object RecordingSection : Screen
     data object ContactSection : Screen
     data object NoteSection : Screen
@@ -89,6 +95,16 @@ private fun MainScaffold(
 
     // 全屏板块页（无底栏）
     when (val s = screen) {
+        is Screen.PhotoView -> {
+            BackHandler { screen = s.backTo }
+            PhotoViewerScreen(
+                viewModel = galleryViewModel,
+                asset = s.asset,
+                saveDirStore = container.saveDirStore,
+                onBack = { screen = s.backTo },
+            )
+            return
+        }
         is Screen.AlbumAssets -> {
             BackHandler { screen = Screen.AlbumSection }
             AlbumAssetsScreen(
@@ -96,15 +112,18 @@ private fun MainScaffold(
                 album = s.album,
                 saveDirStore = container.saveDirStore,
                 onBack = { screen = Screen.AlbumSection },
+                onOpenPhoto = { asset -> screen = Screen.PhotoView(asset, backTo = s) },
             )
             return
         }
         Screen.AlbumSection -> {
             BackHandler { screen = Screen.Welcome }
-            AlbumsScreen(
+            GallerySectionScreen(
                 viewModel = galleryViewModel,
+                saveDirStore = container.saveDirStore,
                 onBack = { screen = Screen.Welcome },
                 onOpenAlbum = { album -> screen = Screen.AlbumAssets(album) },
+                onOpenPhoto = { asset -> screen = Screen.PhotoView(asset, backTo = Screen.AlbumSection) },
             )
             return
         }

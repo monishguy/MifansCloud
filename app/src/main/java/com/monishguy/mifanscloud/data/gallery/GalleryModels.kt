@@ -8,6 +8,8 @@ data class RemoteAlbum(
     val lastUpdateTime: Long,
     /** 相册封面缩略图 URL 列表（`numOfThumbnails=1` 时返回）。 */
     val coverUrls: List<String>,
+    /** 私密相册（albumId=1000）：点击需输入密码，云端拉取能力未验证。 */
+    val isPrivate: Boolean = false,
 )
 
 /** 资产缩略图：`data` 为内嵌 base64（isUrl=false）或 URL（isUrl=true）。 */
