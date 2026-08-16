@@ -31,34 +31,41 @@ class XiaomiAuthService(
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
 
     private class CachedToken(
-        val credentials: XiaomiCredentials,
+        val credential: XiaomiCredential.PassToken,
         val session: SessionToken,
     )
 
     @Volatile
     private var cache: CachedToken? = null
 
-    /** 获取有效 serviceToken：同凭证 10 分钟内复用缓存，否则重新换取。 */
+    /** 获取有效 serviceToken。 */
     @Synchronized
-    fun getServiceToken(credentials: XiaomiCredentials): SessionToken {
+    fun getServiceToken(credential: XiaomiCredential): SessionToken = when (credential) {
+        // 直连会话：浏览器已登录的 serviceToken 直接用，无需换取、不可刷新
+        is XiaomiCredential.ServiceToken -> SessionToken(credential.serviceToken, obtainedAt = 0L)
+
+        is XiaomiCredential.PassToken -> getPassTokenSession(credential)
+    }
+
+    private fun getPassTokenSession(credential: XiaomiCredential.PassToken): SessionToken {
         val now = clock()
         cache?.let { cached ->
-            if (cached.credentials == credentials &&
+            if (cached.credential == credential &&
                 now - cached.session.obtainedAt < REFRESH_INTERVAL_MS
             ) {
                 return cached.session
             }
         }
-        return exchange(credentials).also { session ->
-            cache = CachedToken(credentials, session)
+        return exchange(credential).also { session ->
+            cache = CachedToken(credential, session)
         }
     }
 
-    /** 清空缓存并立即重新换取（401 会话失效时调用）。 */
+    /** 清空缓存并立即重新换取（401 会话失效时调用，仅 passToken 凭证可用）。 */
     @Synchronized
-    fun invalidateAndRefresh(credentials: XiaomiCredentials): SessionToken {
+    fun invalidateAndRefresh(credential: XiaomiCredential.PassToken): SessionToken {
         invalidate()
-        return getServiceToken(credentials)
+        return getPassTokenSession(credential)
     }
 
     /** 仅清空缓存，不发起网络请求。 */
@@ -67,9 +74,9 @@ class XiaomiAuthService(
     }
 
     /** 无条件执行三步换取链（测试与手动刷新入口）。 */
-    fun exchange(credentials: XiaomiCredentials): SessionToken {
+    fun exchange(credential: XiaomiCredential.PassToken): SessionToken {
         val deviceId = "wb_" + UUID.randomUUID()
-        val cookie = buildCookie(credentials.userId, deviceId, credentials.passToken)
+        val cookie = buildCookie(credential.userId, deviceId, credential.passToken)
 
         val loginUrl = requestLoginUrl(cookie)
         val stsUrl = followLoginUrl(loginUrl, cookie)

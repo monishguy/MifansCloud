@@ -8,7 +8,7 @@ import com.monishguy.mifanscloud.data.auth.CookieParser
 import com.monishguy.mifanscloud.data.auth.CredentialStore
 import com.monishguy.mifanscloud.data.auth.SessionToken
 import com.monishguy.mifanscloud.data.auth.XiaomiAuthService
-import com.monishguy.mifanscloud.data.auth.XiaomiCredentials
+import com.monishguy.mifanscloud.data.auth.XiaomiCredential
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,7 +26,7 @@ sealed interface AuthUiState {
 
     /** 凭证有效，serviceToken 会话可用。 */
     data class Ready(
-        val credentials: XiaomiCredentials,
+        val credential: XiaomiCredential,
         val tokenObtainedAt: Long?,
     ) : AuthUiState
 }
@@ -63,13 +63,13 @@ class AuthViewModel(
         }
     }
 
-    /** 粘贴整段 Cookie（自动解析 userId/passToken）。 */
+    /** 粘贴整段 Cookie（自动解析 userId + passToken/serviceToken）。 */
     fun saveFromCookie(rawCookie: String) {
         val parsed = CookieParser.parse(rawCookie)
         if (parsed == null) {
             _state.value = AuthUiState.NotConfigured(
-                "无法解析出 userId 与 passToken。若 Cookie 中只有 serviceToken，请先在浏览器访问" +
-                    " i.mi.com/gallery/h5#/ 完成设备验证后重新复制"
+                "无法解析出 userId 与（passToken 或 serviceToken）。" +
+                    "若只有 userId，请先在浏览器访问 i.mi.com/gallery/h5#/ 完成设备验证后重新复制"
             )
             return
         }
@@ -82,18 +82,19 @@ class AuthViewModel(
             _state.value = AuthUiState.NotConfigured("userId 与 passToken 不能为空")
             return
         }
-        saveAndValidate(XiaomiCredentials(userId.trim(), passToken.trim()))
+        saveAndValidate(XiaomiCredential.PassToken(userId.trim(), passToken.trim()))
     }
 
-    /** 手动刷新 serviceToken（10 分钟缓存周期之外触发）。 */
+    /** 手动刷新 serviceToken（10 分钟缓存周期之外触发；仅 passToken 凭证可刷新）。 */
     fun refreshNow() {
         val ready = _state.value as? AuthUiState.Ready ?: return
+        val passToken = (ready.credential as? XiaomiCredential.PassToken) ?: return
         viewModelScope.launch {
             _state.value = AuthUiState.Loading
             val result = withContext(ioDispatcher) {
-                runCatching { authService.exchange(ready.credentials) }
+                runCatching { authService.exchange(passToken) }
             }
-            _state.value = mapResult(ready.credentials, result)
+            _state.value = mapResult(passToken, result)
         }
     }
 
@@ -103,34 +104,34 @@ class AuthViewModel(
         _state.value = AuthUiState.NotConfigured(null)
     }
 
-    private fun saveAndValidate(credentials: XiaomiCredentials) {
+    private fun saveAndValidate(credential: XiaomiCredential) {
         viewModelScope.launch {
             _state.value = AuthUiState.Loading
             val result = withContext(ioDispatcher) {
                 runCatching {
-                    store.save(credentials)
-                    authService.getServiceToken(credentials)
+                    store.save(credential)
+                    authService.getServiceToken(credential)
                 }
             }
             if (result.isFailure) {
                 // 新凭证验证失败：不留无效凭证
                 store.clear()
             }
-            _state.value = mapResult(credentials, result)
+            _state.value = mapResult(credential, result)
         }
     }
 
-    private suspend fun validate(credentials: XiaomiCredentials): AuthUiState = mapResult(
-        credentials,
+    private suspend fun validate(credential: XiaomiCredential): AuthUiState = mapResult(
+        credential,
         withContext(ioDispatcher) {
-            runCatching { authService.getServiceToken(credentials) }
+            runCatching { authService.getServiceToken(credential) }
         },
     )
 
     /** 统一把换取结果映射为 UI 状态（成功 → Ready；失败 → NotConfigured）。 */
-    private fun mapResult(credentials: XiaomiCredentials, result: Result<SessionToken>): AuthUiState =
+    private fun mapResult(credential: XiaomiCredential, result: Result<SessionToken>): AuthUiState =
         result.fold(
-            onSuccess = { AuthUiState.Ready(credentials, it.obtainedAt) },
+            onSuccess = { AuthUiState.Ready(credential, it.obtainedAt) },
             onFailure = { AuthUiState.NotConfigured(it.message ?: "凭证验证失败") },
         )
 

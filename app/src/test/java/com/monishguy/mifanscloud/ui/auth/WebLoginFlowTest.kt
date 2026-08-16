@@ -32,33 +32,31 @@ class WebLoginFlowTest {
     }
 
     @Test
-    fun `已登录但缺 passToken 时跳转相册页触发设备验证`() {
-        assertEquals(
-            WebLoginFlow.Decision.NavigateToGallery,
-            WebLoginFlow.decide("userId=42; serviceToken=st_only", galleryVisited = false),
-        )
+    fun `serviceToken 直连会话无需访问相册页直接提取`() {
+        val raw = "userId=42; serviceToken=st_only; i.mi.com_isvalid_servicetoken=true"
+
+        assertEquals(WebLoginFlow.Decision.Extracted(raw), WebLoginFlow.decide(raw, galleryVisited = false))
     }
 
     @Test
-    fun `完整凭证但尚未访问相册页仍跳转相册页`() {
-        assertEquals(
-            WebLoginFlow.Decision.NavigateToGallery,
-            WebLoginFlow.decide("userId=42; passToken=pt_abc", galleryVisited = false),
-        )
-    }
-
-    @Test
-    fun `完整凭证且已访问相册页则提取原始 cookie`() {
+    fun `passToken 凭证且已访问相册页则提取原始 cookie`() {
         val raw = "userId=42; passToken=pt_abc; serviceToken=st_zzz"
 
         assertEquals(WebLoginFlow.Decision.Extracted(raw), WebLoginFlow.decide(raw, galleryVisited = true))
     }
 
     @Test
-    fun `已访问相册页后仍缺 passToken 继续等待（不循环跳转）`() {
+    fun `passToken 凭证但尚未访问相册页时跳转相册页触发设备验证`() {
+        val raw = "userId=42; passToken=pt_abc"
+
+        assertEquals(WebLoginFlow.Decision.NavigateToGallery, WebLoginFlow.decide(raw, galleryVisited = false))
+    }
+
+    @Test
+    fun `已访问相册页仍只有 userId 时继续等待（不循环跳转）`() {
         assertEquals(
             WebLoginFlow.Decision.KeepWaiting,
-            WebLoginFlow.decide("userId=42; serviceToken=st_only", galleryVisited = true),
+            WebLoginFlow.decide("userId=42; deviceId=wb_x", galleryVisited = true),
         )
     }
 }

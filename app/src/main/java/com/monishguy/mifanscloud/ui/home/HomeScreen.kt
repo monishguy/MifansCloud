@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.monishguy.mifanscloud.data.auth.XiaomiCredential
 import com.monishguy.mifanscloud.ui.auth.AuthUiState
 import com.monishguy.mifanscloud.ui.auth.AuthViewModel
 import java.time.Instant
@@ -40,6 +41,7 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.state.collectAsState()
     val loading = uiState is AuthUiState.Loading
+    val isPassToken = state.credential is XiaomiCredential.PassToken
 
     Column(
         modifier = modifier
@@ -60,25 +62,38 @@ fun HomeScreen(
             Column(Modifier.padding(16.dp)) {
                 Text("已连接小米云", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                InfoRow("userId", state.credentials.userId)
-                InfoRow("serviceToken", formatTokenTime(state.tokenObtainedAt))
-                InfoRow("刷新策略", "按需刷新（serviceToken 10 分钟周期，401 自动重试）")
+                InfoRow("userId", state.credential.userId)
+                InfoRow(
+                    "凭证类型",
+                    if (isPassToken) "passToken（10 分钟自动换取）" else "serviceToken 直连（浏览器会话）",
+                )
+                InfoRow(
+                    "serviceToken",
+                    if (isPassToken) formatTokenTime(state.tokenObtainedAt) else "—（浏览器会话）",
+                )
+                InfoRow(
+                    "刷新策略",
+                    if (isPassToken) "按需刷新（10 分钟周期，401 自动重试）"
+                    else "不可自动刷新，失效后需重新登录 i.mi.com",
+                )
             }
         }
 
         Spacer(Modifier.height(16.dp))
         Row {
-            Button(
-                onClick = { viewModel.refreshNow() },
-                enabled = !loading,
-            ) {
-                if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
+            if (isPassToken) {
+                Button(
+                    onClick = { viewModel.refreshNow() },
+                    enabled = !loading,
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (loading) "刷新中…" else "立即刷新")
                 }
-                Text(if (loading) "刷新中…" else "立即刷新")
+                Spacer(Modifier.width(12.dp))
             }
-            Spacer(Modifier.width(12.dp))
             OutlinedButton(onClick = { viewModel.clearCredentials() }) {
                 Text("清除凭证")
             }

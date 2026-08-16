@@ -70,8 +70,8 @@ fun LoginScreen(
         Text("配置小米云凭证", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
         Text(
-            "在浏览器登录 https://i.mi.com/ 并访问一次相册页后，" +
-                "从开发者工具 → Application → Cookies 复制 userId 与 passToken。",
+            "在浏览器登录 https://i.mi.com/ 后，从开发者工具 → Application → Cookies " +
+                "复制整段 Cookie（含 userId 与 passToken 或 serviceToken 均可自动解析）。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

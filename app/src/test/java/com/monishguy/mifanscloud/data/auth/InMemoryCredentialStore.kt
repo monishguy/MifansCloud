@@ -5,15 +5,15 @@ package com.monishguy.mifanscloud.data.auth
  */
 class InMemoryCredentialStore : CredentialStore {
 
-    private var credentials: XiaomiCredentials? = null
+    private var credential: XiaomiCredential? = null
 
-    override fun save(credentials: XiaomiCredentials) {
-        this.credentials = credentials
+    override fun save(credential: XiaomiCredential) {
+        this.credential = credential
     }
 
-    override fun load(): XiaomiCredentials? = credentials
+    override fun load(): XiaomiCredential? = credential
 
     override fun clear() {
-        credentials = null
+        credential = null
     }
 }

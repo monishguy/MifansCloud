@@ -132,7 +132,11 @@ fun WebViewLoginScreen(
                             override fun onPageFinished(view: WebView, url: String?) {
                                 progress = 100
                                 val raw = CookieManager.getInstance().getCookie(WebLoginFlow.HOME_URL)
-                                Log.d(TAG, "onPageFinished: $url | cookieKeys=${cookieKeys(raw)}")
+                                Log.d(
+                                    TAG,
+                                    "onPageFinished: $url | title=${view.title} | " +
+                                        "contentHeight=${view.contentHeight} | cookieKeys=${cookieKeys(raw)}",
+                                )
                                 inspectAndDecide()
                             }
 

@@ -26,17 +26,21 @@ class SecureCredentialStore(context: Context) : CredentialStore {
         )
     }
 
-    override fun save(credentials: XiaomiCredentials) {
+    override fun save(credential: XiaomiCredential) {
         prefs.edit()
-            .putString(KEY_USER_ID, credentials.userId)
-            .putString(KEY_PASS_TOKEN, credentials.passToken)
+            .putString(KEY_USER_ID, credential.userId)
+            .putString(KEY_TOKEN, credential.token)
+            .putString(KEY_TOKEN_TYPE, credential.typeCode)
             .apply()
     }
 
-    override fun load(): XiaomiCredentials? {
+    override fun load(): XiaomiCredential? {
         val userId = prefs.getString(KEY_USER_ID, null) ?: return null
-        val passToken = prefs.getString(KEY_PASS_TOKEN, null) ?: return null
-        return XiaomiCredentials(userId, passToken)
+        val token = prefs.getString(KEY_TOKEN, null) ?: return null
+        return when (prefs.getString(KEY_TOKEN_TYPE, null)) {
+            TYPE_SERVICE -> XiaomiCredential.ServiceToken(userId, token)
+            else -> XiaomiCredential.PassToken(userId, token)
+        }
     }
 
     override fun clear() {
@@ -46,6 +50,20 @@ class SecureCredentialStore(context: Context) : CredentialStore {
     private companion object {
         const val PREFS_NAME = "xiaomi_credentials"
         const val KEY_USER_ID = "userId"
-        const val KEY_PASS_TOKEN = "passToken"
+        const val KEY_TOKEN = "token"
+        const val KEY_TOKEN_TYPE = "tokenType"
+        const val TYPE_SERVICE = "service"
+
+        val XiaomiCredential.token: String
+            get() = when (this) {
+                is XiaomiCredential.PassToken -> passToken
+                is XiaomiCredential.ServiceToken -> serviceToken
+            }
+
+        val XiaomiCredential.typeCode: String
+            get() = when (this) {
+                is XiaomiCredential.PassToken -> "pass"
+                is XiaomiCredential.ServiceToken -> TYPE_SERVICE
+            }
     }
 }

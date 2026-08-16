@@ -2,7 +2,7 @@ package com.monishguy.mifanscloud.ui.auth
 
 import com.monishguy.mifanscloud.data.auth.InMemoryCredentialStore
 import com.monishguy.mifanscloud.data.auth.XiaomiAuthService
-import com.monishguy.mifanscloud.data.auth.XiaomiCredentials
+import com.monishguy.mifanscloud.data.auth.XiaomiCredential
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -82,8 +82,8 @@ class AuthViewModelTest {
 
             val state = vm.state.value
             assertTrue("应进入 Ready", state is AuthUiState.Ready)
-            assertEquals("42", (state as AuthUiState.Ready).credentials.userId)
-            assertEquals(XiaomiCredentials("42", "pt_abc"), store.load())
+            assertEquals("42", (state as AuthUiState.Ready).credential.userId)
+            assertEquals(XiaomiCredential.PassToken("42", "pt_abc"), store.load())
         }
     }
 
@@ -103,17 +103,17 @@ class AuthViewModelTest {
     }
 
     @Test
-    fun `只有 serviceToken 的 cookie 视为未配置并给出设备验证提示`() = runTest {
+    fun `只有 serviceToken 的 cookie 直连进入 Ready 且不发起网络`() = runTest {
         withMainDispatcher {
             val vm = AuthViewModel(store, auth, ioDispatcher = StandardTestDispatcher(testScheduler))
 
-            vm.saveFromCookie("userId=42; serviceToken=st_only; deviceId=wb_x")
+            vm.saveFromCookie("userId=42; serviceToken=st_only; i.mi.com_isvalid_servicetoken=true")
             advanceUntilIdle()
 
             val state = vm.state.value
-            assertTrue(state is AuthUiState.NotConfigured)
-            assertTrue((state as AuthUiState.NotConfigured).error.orEmpty().contains("设备验证"))
-            assertNull(store.load())
+            assertTrue("直连会话应直接 Ready", state is AuthUiState.Ready)
+            assertEquals(XiaomiCredential.ServiceToken("42", "st_only"), store.load())
+            assertEquals(0, server.requestCount)
         }
     }
 
@@ -134,7 +134,7 @@ class AuthViewModelTest {
     @Test
     fun `启动时已有有效凭证直接进入 Ready`() = runTest {
         withMainDispatcher {
-            store.save(XiaomiCredentials("42", "pt_abc"))
+            store.save(XiaomiCredential.PassToken("42", "pt_abc"))
             enqueueExchange("st_1")
             val vm = AuthViewModel(store, auth, ioDispatcher = StandardTestDispatcher(testScheduler))
             advanceUntilIdle()
@@ -146,7 +146,7 @@ class AuthViewModelTest {
     @Test
     fun `清除凭证回到 NotConfigured`() = runTest {
         withMainDispatcher {
-            store.save(XiaomiCredentials("42", "pt_abc"))
+            store.save(XiaomiCredential.PassToken("42", "pt_abc"))
             enqueueExchange("st_1")
             val vm = AuthViewModel(store, auth, ioDispatcher = StandardTestDispatcher(testScheduler))
             advanceUntilIdle()

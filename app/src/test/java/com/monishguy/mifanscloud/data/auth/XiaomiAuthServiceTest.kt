@@ -19,7 +19,7 @@ class XiaomiAuthServiceTest {
 
     private lateinit var server: MockWebServer
     private lateinit var service: XiaomiAuthService
-    private val credentials = XiaomiCredentials("42", "pt_abc")
+    private val credentials = XiaomiCredential.PassToken("42", "pt_abc")
 
     @Before
     fun setUp() {
@@ -153,9 +153,25 @@ class XiaomiAuthServiceTest {
         service.getServiceToken(credentials)
 
         enqueueExchange("st_B", requestId = 2)
-        val other = service.getServiceToken(XiaomiCredentials("99", "pt_other"))
+        val other = service.getServiceToken(XiaomiCredential.PassToken("99", "pt_other"))
 
         assertEquals("st_B", other.serviceToken)
         assertEquals(6, server.requestCount)
+    }
+
+    @Test
+    fun `ServiceToken 直连凭证直接返回且不发起任何网络请求`() {
+        var now = 0L
+        service = XiaomiAuthService(
+            client = OkHttpClient.Builder().followRedirects(false).build(),
+            baseUrl = server.url("/").toString().removeSuffix("/"),
+            clock = { now },
+        )
+        val direct = XiaomiCredential.ServiceToken("42", "st_direct")
+
+        val session = service.getServiceToken(direct)
+
+        assertEquals("st_direct", session.serviceToken)
+        assertEquals(0, server.requestCount)
     }
 }

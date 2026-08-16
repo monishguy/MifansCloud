@@ -7,9 +7,9 @@ package com.monishguy.mifanscloud.data.auth
  */
 interface CredentialStore {
 
-    fun save(credentials: XiaomiCredentials)
+    fun save(credential: XiaomiCredential)
 
-    fun load(): XiaomiCredentials?
+    fun load(): XiaomiCredential?
 
     fun clear()
 }

@@ -1,8 +1,9 @@
 package com.monishguy.mifanscloud.data.remote
 
 import com.monishguy.mifanscloud.data.auth.SessionToken
+import com.monishguy.mifanscloud.data.auth.XiaomiAuthException
 import com.monishguy.mifanscloud.data.auth.XiaomiAuthService
-import com.monishguy.mifanscloud.data.auth.XiaomiCredentials
+import com.monishguy.mifanscloud.data.auth.XiaomiCredential
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -11,13 +12,16 @@ import okhttp3.Response
  * 带认证的 i.mi.com 客户端。
  *
  * 为每个请求注入 `Cookie: userId=...; serviceToken=...;`（对齐
- * XiaomiAlbumSyncer `authHeader`）；收到 401 时刷新 serviceToken 并
- * **重发一次**（对齐 MiCloud 的 401 自动重登）。M3 起各数据模块统一走此客户端。
+ * XiaomiAlbumSyncer `authHeader`）；收到 401 时：
+ * - passToken 凭证 → 刷新 serviceToken 并**重发一次**（对齐 MiCloud 的 401 自动重登）；
+ * - serviceToken 直连凭证 → 无法刷新，抛 [XiaomiAuthException] 提示重新登录。
+ *
+ * M3 起各数据模块统一走此客户端。
  */
 class XiaomiApiClient(
     private val client: OkHttpClient,
     private val auth: XiaomiAuthService,
-    private val credentialsProvider: () -> XiaomiCredentials,
+    private val credentialsProvider: () -> XiaomiCredential,
 ) {
 
     /**
@@ -25,23 +29,27 @@ class XiaomiApiClient(
      * 返回 401 之外的原始响应，或刷新后重发的响应。
      */
     fun execute(request: Request): Response {
-        val credentials = credentialsProvider()
-        val first = callWithToken(request, credentials, auth.getServiceToken(credentials))
+        val credential = credentialsProvider()
+        val first = callWithToken(
+            request,
+            credential.userId,
+            auth.getServiceToken(credential).serviceToken,
+        )
         if (first.code != 401) return first
         first.close()
 
-        val refreshed = auth.invalidateAndRefresh(credentials)
-        return callWithToken(request, credentials, refreshed)
+        val refreshed = when (credential) {
+            is XiaomiCredential.PassToken -> auth.invalidateAndRefresh(credential).serviceToken
+            is XiaomiCredential.ServiceToken ->
+                throw XiaomiAuthException("浏览器会话已失效（401），请重新登录 i.mi.com 并更新凭证")
+        }
+        return callWithToken(request, credential.userId, refreshed)
     }
 
-    private fun callWithToken(
-        request: Request,
-        credentials: XiaomiCredentials,
-        token: SessionToken,
-    ): Response {
+    private fun callWithToken(request: Request, userId: String, serviceToken: String): Response {
         val authenticated = request.newBuilder()
             .header(HEADER_USER_AGENT, XiaomiAuthService.UA)
-            .header(HEADER_COOKIE, "userId=${credentials.userId}; serviceToken=${token.serviceToken};")
+            .header(HEADER_COOKIE, "userId=$userId; serviceToken=$serviceToken;")
             .build()
         return client.newCall(authenticated).execute()
     }

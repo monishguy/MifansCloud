@@ -1,7 +1,8 @@
 package com.monishguy.mifanscloud.data.remote
 
+import com.monishguy.mifanscloud.data.auth.XiaomiAuthException
 import com.monishguy.mifanscloud.data.auth.XiaomiAuthService
-import com.monishguy.mifanscloud.data.auth.XiaomiCredentials
+import com.monishguy.mifanscloud.data.auth.XiaomiCredential
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.mockwebserver.MockResponse
@@ -19,7 +20,7 @@ class XiaomiApiClientTest {
 
     private lateinit var server: MockWebServer
     private lateinit var client: XiaomiApiClient
-    private val credentials = XiaomiCredentials("42", "pt_abc")
+    private val credentials = XiaomiCredential.PassToken("42", "pt_abc")
 
     @Before
     fun setUp() {
@@ -91,5 +92,25 @@ class XiaomiApiClientTest {
         }
 
         assertEquals(4, server.requestCount)
+    }
+
+    @Test
+    fun `ServiceToken 直连会话遇 401 抛异常不重试（无法自动刷新）`() {
+        val directClient = XiaomiApiClient(
+            client = OkHttpClient.Builder().followRedirects(false).build(),
+            auth = XiaomiAuthService(
+                client = OkHttpClient.Builder().followRedirects(false).build(),
+                baseUrl = server.url("/").toString().removeSuffix("/"),
+            ),
+            credentialsProvider = { XiaomiCredential.ServiceToken("42", "st_direct") },
+        )
+        server.enqueue(MockResponse().setResponseCode(401))
+
+        val request = Request.Builder().url(server.url("/gallery/user/album/list")).get().build()
+
+        org.junit.Assert.assertThrows(XiaomiAuthException::class.java) {
+            directClient.execute(request).close()
+        }
+        assertEquals("直连会话 401 不应触发换取链", 1, server.requestCount)
     }
 }
