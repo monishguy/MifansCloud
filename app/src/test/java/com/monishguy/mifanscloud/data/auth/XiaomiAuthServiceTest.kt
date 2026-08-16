@@ -174,4 +174,32 @@ class XiaomiAuthServiceTest {
         assertEquals("st_direct", session.serviceToken)
         assertEquals(0, server.requestCount)
     }
+
+    @Test
+    fun `AutoRenewal 用整段 Cookie 换取新 serviceToken`() {
+        server.enqueue(
+            MockResponse().addHeader("Set-Cookie", "serviceToken=st_fresh; Path=/").setBody("{}")
+        )
+        val direct = XiaomiCredential.ServiceToken(
+            userId = "42",
+            serviceToken = "st_old",
+            rawCookie = "userId=42; serviceToken=st_old; i.mi.com_slh=x;",
+        )
+
+        val session = service.renewServiceToken(direct)
+
+        assertEquals("st_fresh", session.serviceToken)
+        val req = server.takeRequest()
+        assertEquals("/status/lite/setting", req.path?.substringBefore("?"))
+        assertEquals("AutoRenewal", req.requestUrl?.queryParameter("type"))
+        assertTrue("续期请求应携带整段 Cookie", req.getHeader("Cookie").orEmpty().contains("i.mi.com_slh=x"))
+    }
+
+    @Test
+    fun `AutoRenewal 无整段 Cookie 抛异常`() {
+        val direct = XiaomiCredential.ServiceToken("42", "st_old", rawCookie = null)
+
+        assertThrows(XiaomiAuthException::class.java) { service.renewServiceToken(direct) }
+        assertEquals(0, server.requestCount)
+    }
 }

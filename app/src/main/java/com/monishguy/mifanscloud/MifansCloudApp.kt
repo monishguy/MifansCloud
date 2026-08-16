@@ -68,6 +68,15 @@ class AppContainer(context: Context) {
         credentialsProvider = {
             credentialStore.load() ?: error("未配置小米云凭证")
         },
+        // ServiceToken 直连会话 401 时：AutoRenewal 续期并持久化，无需用户重新粘贴
+        renewer = {
+            val credential = credentialStore.load() as? XiaomiCredential.ServiceToken ?: return@XiaomiApiClient null
+            runCatching {
+                authService.renewServiceToken(credential).serviceToken.also { fresh ->
+                    credentialStore.updateServiceToken(fresh)
+                }
+            }.getOrNull()
+        },
     )
 
     val galleryApi: GalleryApi = GalleryApi(
@@ -91,6 +100,15 @@ class AppContainer(context: Context) {
     val downloadedStore: DownloadedStore = DownloadedStore(
         File(appContext.filesDir, DOWNLOADED_FILE),
     )
+
+    /** 板块缓存代际：清除凭证时 +1，各 ViewModel 据此判断缓存是否失效。 */
+    private val cacheGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun invalidateCache() {
+        cacheGeneration.incrementAndGet()
+    }
+
+    val cacheVersion: () -> Int = { cacheGeneration.get() }
 
     /** 缩略图加载器（Coil），由 Application 设为默认。 */
     val imageLoader: ImageLoader by lazy {

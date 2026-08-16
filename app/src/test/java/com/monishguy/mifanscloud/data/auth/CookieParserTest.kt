@@ -39,12 +39,15 @@ class CookieParserTest {
     }
 
     @Test
-    fun `只有 serviceToken 返回直连会话凭证（跳过换取链）`() {
+    fun `只有 serviceToken 返回直连会话凭证（保留整段 Cookie 供续期）`() {
         val raw = "userId=42; serviceToken=st_only; i.mi.com_isvalid_servicetoken=true"
 
         val credential = CookieParser.parse(raw)
 
-        assertEquals(XiaomiCredential.ServiceToken("42", "st_only"), credential)
+        assertEquals(
+            XiaomiCredential.ServiceToken("42", "st_only", rawCookie = raw),
+            credential,
+        )
     }
 
     @Test

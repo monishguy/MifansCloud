@@ -68,6 +68,35 @@ class XiaomiAuthService(
         return getPassTokenSession(credential)
     }
 
+    /**
+     * AutoRenewal 续期（对齐 MiCloud `status/setting`）：用**原始整段 Cookie**
+     * 请求续期端点，从 Set-Cookie 换取新 serviceToken。只要浏览器会话存活，
+     * 就无需重新登录复制（解决「每几分钟要重新取 Cookie」）。
+     *
+     * @param credential 直连会话（需带 [XiaomiCredential.ServiceToken.rawCookie]）
+     * @return 新会话；续期端点未返回 serviceToken 时抛 [XiaomiAuthException]
+     */
+    fun renewServiceToken(credential: XiaomiCredential.ServiceToken): SessionToken {
+        val rawCookie = credential.rawCookie
+            ?: throw XiaomiAuthException("缺少整段 Cookie，无法自动续期（请重新粘贴）")
+        val url = baseUrl.newBuilder()
+            .addPathSegments("status/lite/setting")
+            .addQueryParameter("type", "AutoRenewal")
+            .addQueryParameter("inactiveTime", "10")
+            .addQueryParameter("ts", clock().toString())
+            .build()
+        get(url.toString(), rawCookie).use { resp ->
+            if (!resp.isSuccessful) throw XiaomiAuthException("续期失败 HTTP ${resp.code}")
+            val setCookie = resp.headers("Set-Cookie")
+                .firstOrNull { it.startsWith("serviceToken=") }
+                ?: throw XiaomiAuthException("续期端点未返回 serviceToken（浏览器会话可能已失效，请重新登录）")
+            return SessionToken(
+                serviceToken = setCookie.substringAfter('=').substringBefore(';'),
+                obtainedAt = clock(),
+            )
+        }
+    }
+
     /** 仅清空缓存，不发起网络请求。 */
     fun invalidate() {
         cache = null

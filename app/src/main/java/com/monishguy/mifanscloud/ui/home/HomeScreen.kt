@@ -42,6 +42,7 @@ fun HomeScreen(
     val uiState by viewModel.state.collectAsState()
     val loading = uiState is AuthUiState.Loading
     val isPassToken = state.credential is XiaomiCredential.PassToken
+    val canRenew = (state.credential as? XiaomiCredential.ServiceToken)?.rawCookie != null
 
     Column(
         modifier = modifier
@@ -73,8 +74,11 @@ fun HomeScreen(
                 )
                 InfoRow(
                     "刷新策略",
-                    if (isPassToken) "按需刷新（10 分钟周期，401 自动重试）"
-                    else "不可自动刷新，失效后需重新登录 i.mi.com",
+                    when {
+                        isPassToken -> "按需刷新（10 分钟周期，401 自动重试）"
+                        canRenew -> "AutoRenewal 自动续期（无需重新复制 Cookie）"
+                        else -> "失效后需重新登录 i.mi.com"
+                    },
                 )
             }
         }
@@ -91,6 +95,15 @@ fun HomeScreen(
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(if (loading) "刷新中…" else "立即刷新")
+                }
+                Spacer(Modifier.width(12.dp))
+            }
+            if (canRenew) {
+                Button(
+                    onClick = { viewModel.renewNow() },
+                    enabled = !loading,
+                ) {
+                    Text(if (loading) "续期中…" else "续期会话")
                 }
                 Spacer(Modifier.width(12.dp))
             }

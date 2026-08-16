@@ -112,7 +112,13 @@ class AuthViewModelTest {
 
             val state = vm.state.value
             assertTrue("直连会话应直接 Ready", state is AuthUiState.Ready)
-            assertEquals(XiaomiCredential.ServiceToken("42", "st_only"), store.load())
+            assertEquals(
+                XiaomiCredential.ServiceToken(
+                    "42", "st_only",
+                    rawCookie = "userId=42; serviceToken=st_only; i.mi.com_isvalid_servicetoken=true",
+                ),
+                store.load(),
+            )
             assertEquals(0, server.requestCount)
         }
     }

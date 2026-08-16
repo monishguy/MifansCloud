@@ -122,6 +122,8 @@ fun WebViewLoginScreen(
                         webView = this
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        // 尝试桌面 UA（部分站点对 WebView UA 渲染白屏——真机实验项）
+                        settings.userAgentString = com.monishguy.mifanscloud.data.auth.XiaomiAuthService.UA
                         CookieManager.getInstance().setAcceptCookie(true)
                         webViewClient = object : WebViewClient() {                            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                                 Log.d(TAG, "onPageStarted: $url")

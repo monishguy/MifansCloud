@@ -26,7 +26,7 @@ object CookieParser {
         val serviceToken = fields["serviceToken"]
         return when {
             passToken != null -> XiaomiCredential.PassToken(userId, passToken)
-            serviceToken != null -> XiaomiCredential.ServiceToken(userId, serviceToken)
+            serviceToken != null -> XiaomiCredential.ServiceToken(userId, serviceToken, raw)
             else -> null
         }
     }

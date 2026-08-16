@@ -13,6 +13,14 @@ class InMemoryCredentialStore : CredentialStore {
 
     override fun load(): XiaomiCredential? = credential
 
+    override fun updateServiceToken(newServiceToken: String) {
+        credential = when (val c = credential) {
+            is XiaomiCredential.PassToken -> c
+            is XiaomiCredential.ServiceToken -> c.copy(serviceToken = newServiceToken)
+            null -> null
+        }
+    }
+
     override fun clear() {
         credential = null
     }

@@ -11,5 +11,8 @@ interface CredentialStore {
 
     fun load(): XiaomiCredential?
 
+    /** AutoRenewal 续期后更新 serviceToken（保留凭证类型与整段 Cookie）。 */
+    fun updateServiceToken(newServiceToken: String)
+
     fun clear()
 }

@@ -113,4 +113,36 @@ class XiaomiApiClientTest {
         }
         assertEquals("直连会话 401 不应触发换取链", 1, server.requestCount)
     }
+
+    @Test
+    fun `ServiceToken 直连会话 401 时经 renewer 续期后重发一次`() {
+        var renewed = false
+        val directClient = XiaomiApiClient(
+            client = OkHttpClient.Builder().followRedirects(false).build(),
+            auth = XiaomiAuthService(
+                client = OkHttpClient.Builder().followRedirects(false).build(),
+                baseUrl = server.url("/").toString().removeSuffix("/"),
+            ),
+            credentialsProvider = {
+                XiaomiCredential.ServiceToken("42", "st_direct", rawCookie = "userId=42; serviceToken=st_direct;")
+            },
+            renewer = {
+                renewed = true
+                "st_renewed"
+            },
+        )
+        server.enqueue(MockResponse().setResponseCode(401))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("ok"))
+
+        val request = Request.Builder().url(server.url("/gallery/user/album/list")).get().build()
+
+        directClient.execute(request).use { resp ->
+            assertEquals(200, resp.code)
+        }
+        assertTrue("401 后应调用 renewer", renewed)
+        assertEquals(2, server.requestCount)
+        val retried = server.takeRequest() // 第一次 401
+        val second = server.takeRequest()
+        assertTrue(second.getHeader("Cookie").orEmpty().contains("serviceToken=st_renewed"))
+    }
 }

@@ -27,10 +27,12 @@ class SecureCredentialStore(context: Context) : CredentialStore {
     }
 
     override fun save(credential: XiaomiCredential) {
+        val rawCookie = (credential as? XiaomiCredential.ServiceToken)?.rawCookie
         prefs.edit()
             .putString(KEY_USER_ID, credential.userId)
             .putString(KEY_TOKEN, credential.token)
             .putString(KEY_TOKEN_TYPE, credential.typeCode)
+            .putString(KEY_RAW_COOKIE, rawCookie)
             .apply()
     }
 
@@ -38,9 +40,25 @@ class SecureCredentialStore(context: Context) : CredentialStore {
         val userId = prefs.getString(KEY_USER_ID, null) ?: return null
         val token = prefs.getString(KEY_TOKEN, null) ?: return null
         return when (prefs.getString(KEY_TOKEN_TYPE, null)) {
-            TYPE_SERVICE -> XiaomiCredential.ServiceToken(userId, token)
+            TYPE_SERVICE -> XiaomiCredential.ServiceToken(
+                userId = userId,
+                serviceToken = token,
+                rawCookie = prefs.getString(KEY_RAW_COOKIE, null),
+            )
             else -> XiaomiCredential.PassToken(userId, token)
         }
+    }
+
+    /** AutoRenewal 续期后更新 serviceToken（保留 rawCookie 与类型）。 */
+    override fun updateServiceToken(newServiceToken: String) {
+        val current = load() ?: return
+        save(
+            when (current) {
+                is XiaomiCredential.PassToken -> current
+                is XiaomiCredential.ServiceToken ->
+                    current.copy(serviceToken = newServiceToken)
+            }
+        )
     }
 
     override fun clear() {
@@ -52,6 +70,7 @@ class SecureCredentialStore(context: Context) : CredentialStore {
         const val KEY_USER_ID = "userId"
         const val KEY_TOKEN = "token"
         const val KEY_TOKEN_TYPE = "tokenType"
+        const val KEY_RAW_COOKIE = "rawCookie"
         const val TYPE_SERVICE = "service"
 
         val XiaomiCredential.token: String

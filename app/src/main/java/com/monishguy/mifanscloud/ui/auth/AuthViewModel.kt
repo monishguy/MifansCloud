@@ -40,6 +40,8 @@ class AuthViewModel(
     private val store: CredentialStore,
     private val authService: XiaomiAuthService,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** 清除凭证时通知各板块缓存失效（AppContainer 装配）。 */
+    private val onCacheInvalidate: () -> Unit = {},
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AuthUiState>(AuthUiState.Loading)
@@ -98,9 +100,33 @@ class AuthViewModel(
         }
     }
 
-    /** 清除本地凭证并回到未配置状态。 */
+    /**
+     * AutoRenewal 续期（直连会话）：用整段 Cookie 换新 serviceToken 并持久化，
+     * 无需重新登录复制。仅 [XiaomiCredential.ServiceToken.rawCookie] 存在时可用。
+     */
+    fun renewNow() {
+        val ready = _state.value as? AuthUiState.Ready ?: return
+        val session = ready.credential as? XiaomiCredential.ServiceToken ?: return
+        viewModelScope.launch {
+            _state.value = AuthUiState.Loading
+            val result = withContext(ioDispatcher) {
+                runCatching {
+                    val fresh = authService.renewServiceToken(session)
+                    store.updateServiceToken(fresh.serviceToken)
+                    fresh
+                }
+            }
+            _state.value = result.fold(
+                onSuccess = { AuthUiState.Ready(session.copy(serviceToken = it.serviceToken), it.obtainedAt) },
+                onFailure = { AuthUiState.NotConfigured(it.message ?: "续期失败") },
+            )
+        }
+    }
+
+    /** 清除本地凭证并回到未配置状态；同时通知各板块缓存失效。 */
     fun clearCredentials() {
         store.clear()
+        onCacheInvalidate()
         _state.value = AuthUiState.NotConfigured(null)
     }
 
@@ -142,6 +168,7 @@ class AuthViewModel(
             AuthViewModel(
                 store = container.credentialStore,
                 authService = container.authService,
+                onCacheInvalidate = container::invalidateCache,
             ) as T
     }
 }
