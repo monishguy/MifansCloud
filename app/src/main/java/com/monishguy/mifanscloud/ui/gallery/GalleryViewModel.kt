@@ -43,6 +43,10 @@ sealed interface GalleryUiState {
         val stale: Boolean = false,
         /** 拉取失败的相册数（503 等，已跳过）。 */
         val failedAlbums: Int = 0,
+        /** 失败相册 id（用于「重试失败项」）。 */
+        val failedAlbumIds: List<String> = emptyList(),
+        /** 渐进式加载进度文案（如「正在加载 第 3/12 个相册 · 已获取 1520 张」）。 */
+        val progressText: String? = null,
     ) : GalleryUiState
 
     /** 相册内资产网格（按 dateTaken 新旧降序）：每条带匹配状态。 */
@@ -100,6 +104,21 @@ class GalleryViewModel(
     private var albumsCache: List<RemoteAlbum>? = null
     private var photosCache: List<AssetRow>? = null
     private val albumAssetsCache = mutableMapOf<String, List<AssetRow>>()
+
+    /** 本机媒体库匹配缓存：同一凭证代际只扫一次 MediaStore（近万张本地照片扫描很贵）。 */
+    @Volatile
+    private var localMediaCache: List<com.monishguy.mifanscloud.data.sync.LocalMedia>? = null
+    private var localCacheGeneration: Int = -1
+
+    private fun localMedia(): List<com.monishguy.mifanscloud.data.sync.LocalMedia> {
+        val gen = cacheVersion()
+        val cached = localMediaCache
+        if (cached != null && localCacheGeneration == gen) return cached
+        return localMediaSource.queryImagesAndVideos().also {
+            localMediaCache = it
+            localCacheGeneration = gen
+        }
+    }
 
     /** 首次进入（或凭证清除后）才加载，其余复用缓存。 */
     fun loadOnce() {
@@ -189,51 +208,116 @@ class GalleryViewModel(
     }
 
     /**
-     * 拉取全部照片：合并各普通相册资产，按 dateTaken 新旧降序。
-     * 加载期间**保留已有内容**（不清空页面）：仅首次无内容时由 UI 显示加载态。
-     * 单个相册拉取失败自动重试 3 次（503 限流常见），相册间 400ms 节流；
-     * 仍失败的跳过并计数 [GalleryUiState.Photos.failedAlbums]；全部失败回退持久化缓存。
+     * 拉取全部照片：**渐进式加载**——每拉完一个相册立即更新页面
+     * （顶部实时进度文案，照片边拉边显示，绝不空白）。
+     * 单个相册失败自动重试 3 次（503 限流常见），相册间 400ms 节流；
+     * 仍失败的记录 [GalleryUiState.Photos.failedAlbumIds] 供「重试失败项」。
      */
     fun loadAllPhotos() {
         viewModelScope.launch {
-            val existing = photosCache ?: ( _state.value as? GalleryUiState.Photos)?.assets.orEmpty()
-            _state.value = GalleryUiState.Photos(existing, loading = existing.isEmpty())
-            val result = withContext(ioDispatcher) {
-                runCatching {
-                    val albums = galleryApi.fetchAlbums()
-                        .filterNot { it.isPrivate }
-                        .filter { it.albumId.isNotBlank() }
-                    var failed = 0
-                    val all = mutableListOf<RemoteAsset>()
-                    albums.forEachIndexed { index, album ->
-                        if (index > 0) delay(400) // 相册间节流，防触发云端限流
-                        runCatching { fetchAssetsWithRetry(album.albumId) }
-                            .onSuccess { all += it }
-                            .onFailure { failed++ }
-                    }
-                    Triple(matchRows(all), failed, all)
-                }
+            val existing = photosCache ?: (_state.value as? GalleryUiState.Photos)?.assets.orEmpty()
+            _state.value = GalleryUiState.Photos(existing, loading = true, progressText = "正在加载相册列表…")
+
+            val albums = withContext(ioDispatcher) {
+                runCatching { fetchAlbumsWithRetry() }.getOrNull()
             }
-            result.fold(
-                onSuccess = { (rows, failed, allAssets) ->
-                    photosCache = rows
-                    _state.value = GalleryUiState.Photos(rows, loading = false, failedAlbums = failed)
-                    withContext(ioDispatcher) {
-                        metadataCache?.saveAllPhotos(allAssets)
-                    }
-                },
-                onFailure = { error ->
-                    val cached = photosCache ?: withContext(ioDispatcher) { metadataCache?.loadAllPhotos() }
-                        ?.let { matchRows(it) }
-                    if (cached != null) {
-                        photosCache = cached
-                        _state.value = GalleryUiState.Photos(cached, loading = false, stale = true)
-                    } else {
-                        _state.value = GalleryUiState.Error(error.message ?: "拉取照片失败")
-                    }
-                },
-            )
+            if (albums == null) {
+                // 相册列表都拉不到：回退缓存或明确报错
+                val cached = photosCache ?: withContext(ioDispatcher) { metadataCache?.loadAllPhotos() }
+                    ?.let { matchRows(it) }
+                if (cached != null) {
+                    photosCache = cached
+                    _state.value = GalleryUiState.Photos(cached, loading = false, stale = true)
+                } else {
+                    _state.value = GalleryUiState.Error("拉取相册列表失败（网络或限流）")
+                }
+                return@launch
+            }
+
+            val normal = albums.filterNot { it.isPrivate }.filter { it.albumId.isNotBlank() }
+            if (normal.isEmpty()) {
+                val rows = matchRows(emptyList())
+                photosCache = rows
+                _state.value = GalleryUiState.Photos(rows, loading = false)
+                return@launch
+            }
+
+            val all = existing.map { it.asset }.toMutableList()
+            var failed = 0
+            val failedIds = mutableListOf<String>()
+            normal.forEachIndexed { index, album ->
+                if (index > 0) delay(400) // 相册间节流，防触发云端限流
+                val assets = runCatching { fetchAssetsWithRetry(album.albumId) }.getOrNull()
+                if (assets != null) {
+                    all += assets
+                } else {
+                    failed++
+                    failedIds += album.albumId
+                }
+                // 每相册后渐进更新：照片边拉边显示 + 实时进度
+                val rows = matchRows(all)
+                photosCache = rows
+                val last = index == normal.size - 1
+                _state.value = GalleryUiState.Photos(
+                    assets = rows,
+                    loading = !last,
+                    failedAlbums = failed,
+                    failedAlbumIds = failedIds.toList(),
+                    progressText = if (last) null else "正在加载 第 ${index + 1}/${normal.size} 个相册 · 已获取 ${all.size} 张",
+                )
+            }
+            withContext(ioDispatcher) { metadataCache?.saveAllPhotos(all.distinctBy { it.id }) }
         }
+    }
+
+    /** 重试上次失败的相册（方案 A：失败项单独重试，不重新拉全部）。 */
+    fun retryFailedAlbums() {
+        val current = _state.value as? GalleryUiState.Photos ?: return
+        val retryIds = current.failedAlbumIds.toList()
+        if (retryIds.isEmpty()) {
+            loadAllPhotos()
+            return
+        }
+        viewModelScope.launch {
+            val all = current.assets.map { it.asset }.toMutableList()
+            var stillFailed = 0
+            val stillFailedIds = mutableListOf<String>()
+            _state.value = current.copy(loading = true, progressText = "重试 ${retryIds.size} 个失败相册…")
+            retryIds.forEachIndexed { index, albumId ->
+                if (index > 0) delay(400)
+                val assets = runCatching { fetchAssetsWithRetry(albumId) }.getOrNull()
+                if (assets != null) {
+                    all += assets
+                } else {
+                    stillFailed++
+                    stillFailedIds += albumId
+                }
+                val rows = matchRows(all)
+                photosCache = rows
+                _state.value = GalleryUiState.Photos(
+                    assets = rows,
+                    loading = index < retryIds.size - 1,
+                    failedAlbums = stillFailed,
+                    failedAlbumIds = stillFailedIds.toList(),
+                    progressText = null,
+                )
+            }
+            withContext(ioDispatcher) { metadataCache?.saveAllPhotos(all.distinctBy { it.id }) }
+        }
+    }
+
+    /** 相册列表拉取带重试。 */
+    private suspend fun fetchAlbumsWithRetry(): List<RemoteAlbum> {
+        var lastError: Throwable? = null
+        repeat(3) { attempt ->
+            try {
+                return galleryApi.fetchAlbums()
+            } catch (e: Throwable) {
+                lastError = e
+                if (attempt < 2) delay(1_500L * (attempt + 1))
+            }
+        }
+        throw lastError ?: IllegalStateException("拉取相册列表失败")
     }
 
     /** 单相册资产拉取带重试（503 限流时退避重试）。 */
@@ -375,7 +459,7 @@ class GalleryViewModel(
     }
 
     private fun matchRows(assets: List<RemoteAsset>): List<AssetRow> {
-        val local = localMediaSource.queryImagesAndVideos()
+        val local = localMedia()
         val statuses = CloudLocalMatcher.match(assets, local, downloadedStore.ids(GALLERY_NS))
         return assets
             .map { AssetRow(it, statuses[it.id] ?: MatchStatus.NEW) }

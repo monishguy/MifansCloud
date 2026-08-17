@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -226,11 +227,61 @@ private fun PhotosTab(
                         color = MaterialTheme.colorScheme.tertiary,
                     )
                 }
+                // 渐进式加载进度横幅（有数据也不转圈，只显示进度）
+                if (s.loading) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            s.progressText ?: "正在加载照片…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (s.assets.isEmpty() && s.progressText != null) {
+                        Text(
+                            "首次拉取全部照片可能需要 1-2 分钟",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (s.failedAlbums > 0) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${s.failedAlbums} 个相册拉取失败（可能限流）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = { viewModel.retryFailedAlbums() },
+                            modifier = Modifier.height(28.dp),
+                        ) { Text("重试失败项", style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
                 if (s.loading && s.assets.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "正在加载全部照片，请稍候…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                } else if (s.assets.isEmpty()) {
+                } else if (s.assets.isEmpty() && !s.loading) {
                     // 空态：明确提示 + 重试（不做空白页）
                     Column(
                         Modifier.fillMaxSize(),
