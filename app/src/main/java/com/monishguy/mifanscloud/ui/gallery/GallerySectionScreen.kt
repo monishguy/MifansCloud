@@ -145,7 +145,7 @@ private fun PhotosTab(
     var progress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var notifId by remember { mutableStateOf<Int?>(null) }
 
-    // 上传流程：选图 → 选相册 → 真实上传（进度 + 通知栏）
+    // 上传流程：选图 → 弹相册选择（确保相册列表已加载）→ 真实上传
     var uploadTarget by remember { mutableStateOf<RemoteAlbum?>(null) }
     var uploadUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var uploadHint by remember { mutableStateOf<String?>(null) }
@@ -157,8 +157,12 @@ private fun PhotosTab(
     ) { uris ->
         if (uris.isNotEmpty()) {
             uploadUris = uris
+            // 确保相册列表已加载（内存缓存直接有；无则异步拉取），
+            // 无论如何都弹出相册选择框
+            viewModel.ensureAlbums()
             uploadTarget = (state as? GalleryUiState.Albums)?.albums
                 ?.firstOrNull { !it.isPrivate }
+                ?: RemoteAlbum("0", "加载中…", 0, 0, emptyList())
         }
     }
 
@@ -174,6 +178,17 @@ private fun PhotosTab(
 
     /** 递归上传第 [index] 个文件。 */
     fun uploadNext(index: Int, files: List<Triple<java.io.File, String, String>>, target: RemoteAlbum) {
+        if (files.isEmpty()) {
+            uploadProgress = null
+            uploadFileName = null
+            val id = uploadNotifId
+            uploadNotifId = null
+            val msg = "无法读取所选图片"
+            uploadHint = msg
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            DownloadNotifier.finish(context, id, "上传失败", msg, success = false)
+            return
+        }
         if (index >= files.size) {
             uploadProgress = null
             uploadFileName = null
@@ -508,26 +523,40 @@ private fun PhotosTab(
             title = { Text("上传到哪个相册？") },
             text = {
                 val albums = (state as? GalleryUiState.Albums)?.albums.orEmpty()
-                Column {
-                    albums.filterNot { it.isPrivate }.forEach { album ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { picked = album }.padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Surface(
-                                color = if (album == picked) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surfaceVariant,
-                                shape = androidx.compose.foundation.shape.CircleShape,
-                                modifier = Modifier.width(18.dp).height(18.dp),
-                            ) {}
-                            Spacer(Modifier.width(10.dp))
-                            Text(album.name)
+                if (albums.isEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("正在加载相册列表…", style = MaterialTheme.typography.bodyMedium)
+                    }
+                } else {
+                    Column {
+                        albums.filterNot { it.isPrivate }.forEach { album ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { picked = album }.padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Surface(
+                                    color = if (album == picked) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    modifier = Modifier.width(18.dp).height(18.dp),
+                                ) {}
+                                Spacer(Modifier.width(10.dp))
+                                Text(album.name)
+                            }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { startUpload(picked) }) { Text("上传 ${uploadUris.size} 张") }
+                TextButton(
+                    enabled = (state as? GalleryUiState.Albums)?.albums?.isNotEmpty() == true,
+                    onClick = { startUpload(picked) },
+                ) { Text("上传 ${uploadUris.size} 张") }
             },
             dismissButton = {
                 TextButton(onClick = { uploadTarget = null }) { Text("取消") }

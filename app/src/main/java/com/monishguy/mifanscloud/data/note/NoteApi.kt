@@ -65,6 +65,14 @@ class NoteApi(
         // extraInfo：更新 title（保留其余字段）
         val extraInfoJson = runCatching { JSONObject(note.extraInfo) }.getOrElse { JSONObject() }
         extraInfoJson.put("title", newTitle)
+        // setting：保留云端原声明（含附件 data 列表——否则附件会丢失）
+        val setting = runCatching {
+            JSONObject(NoteMarkdown.rawField(note.raw, "setting", "{}"))
+        }.getOrElse { JSONObject() }
+        if (!setting.has("totalSize")) setting.put("totalSize", 0)
+        if (!setting.has("themeId")) setting.put("themeId", 0)
+        if (!setting.has("stickyTime")) setting.put("stickyTime", 0)
+        if (!setting.has("version")) setting.put("version", 0)
         val entry = JSONObject()
             .put("id", note.id)
             .put("tag", tag)
@@ -73,14 +81,7 @@ class NoteApi(
             .put("modifyDate", now)
             .put("colorId", NoteMarkdown.rawField(note.raw, "colorId", "0").toLongOrNull() ?: 0L)
             .put("content", NoteMarkdown.markdownToSnippet(newBodyMarkdown))
-            .put(
-                "setting",
-                JSONObject()
-                    .put("totalSize", 0)
-                    .put("themeId", 0)
-                    .put("stickyTime", 0)
-                    .put("version", 0),
-            )
+            .put("setting", setting)
             .put("folderId", folderId)
             .put("alertDate", 0)
             .put("extraInfo", extraInfoJson.toString())
@@ -137,6 +138,22 @@ class NoteApi(
             lastPage = data.optBoolean("lastPage"),
         )
     }
+
+    /**
+     * 下载笔记附件图片（`GET /file/full?type=note_img&fileid={id}`），
+     * 失败返回 null。
+     */
+    fun fetchNoteImage(fileId: String): ByteArray? = runCatching {
+        val url = baseUrl.newBuilder()
+            .addPathSegments("file/full")
+            .addQueryParameter("type", "note_img")
+            .addQueryParameter("fileid", fileId)
+            .build()
+        apiClient.execute(okhttp3.Request.Builder().url(url).get().build()).use { resp ->
+            if (!resp.isSuccessful) return@use null
+            resp.body?.bytes()
+        }
+    }.getOrNull()
 
     private fun getData(url: String): JSONObject =
         getJson(url).optJSONObject("data")

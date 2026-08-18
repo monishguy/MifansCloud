@@ -82,7 +82,9 @@ object NoteMarkdown {
 
     /**
      * Markdown 正文 → 云端富文本 snippet（保存到云端用）：
-     * 每行一个 `<text indent="1">…</text>`，特殊字符 HTML 转义。
+     * - 图片引用 `![附件 {fileId}]()` 还原为云端图片标记 `☺ {fileId}<0/></>`
+     *   （否则附件会被当成纯文本保存、云端图片失效）；
+     * - 普通行每行一个 `<text indent="1">…</text>`，特殊字符 HTML 转义。
      */
     fun markdownToSnippet(markdown: String): String {
         if (markdown.isBlank()) return "<text indent=\"1\"></text>"
@@ -90,6 +92,12 @@ object NoteMarkdown {
         val sb = StringBuilder()
         lines.forEach { raw ->
             val line = raw.trimEnd()
+            val img = IMAGE_LINE.find(line)
+            if (img != null) {
+                // 还原云端附件标记：☺ {fileId}<0/></>
+                sb.append("☺ ").append(img.groupValues[1]).append("<0/></>").append('\n')
+                return@forEach
+            }
             sb.append("<text indent=\"1\">")
                 .append(escapeHtml(line))
                 .append("</text>")
@@ -109,4 +117,10 @@ object NoteMarkdown {
             }
         }.getOrDefault(default)
     }
+
+    /** 提取 Markdown 正文中的附件 fileId 列表（`![附件 {fileId}]()`）。 */
+    fun extractFileIds(markdown: String): List<String> =
+        IMAGE_LINE.findAll(markdown).map { it.groupValues[1] }.toList()
+
+    private val IMAGE_LINE = Regex("""!\[附件\s+([^\]]+)\]\(\)""")
 }

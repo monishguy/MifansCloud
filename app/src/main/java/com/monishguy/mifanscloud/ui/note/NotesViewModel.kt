@@ -203,6 +203,14 @@ class NotesViewModel(
     fun displaySnippet(note: RemoteNote): String =
         displayBody(note).take(120)
 
+    /** 下载笔记附件图片（编辑页展示用）。 */
+    fun fetchNoteImage(fileId: String, onResult: (ByteArray?) -> Unit) {
+        viewModelScope.launch {
+            val bytes = withContext(ioDispatcher) { noteApi.fetchNoteImage(fileId) }
+            onResult(bytes)
+        }
+    }
+
     /** AppContainer 装配工厂。 */
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

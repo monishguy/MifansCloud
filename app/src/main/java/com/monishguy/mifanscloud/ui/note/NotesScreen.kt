@@ -45,8 +45,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.monishguy.mifanscloud.data.local.DownloadNotifier
 import com.monishguy.mifanscloud.data.local.SafHelper
 import com.monishguy.mifanscloud.data.local.SaveDirStore
@@ -272,6 +275,22 @@ private fun NoteEditor(
     var savedHint by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
+    // 附件图片：解析 Markdown 中的 ![附件 fileId]()，下载真实图片展示
+    var attachmentImages by remember(note.id) { mutableStateOf<Map<String, ByteArray>>(emptyMap()) }
+    LaunchedEffect(note.id) {
+        val fileIds = com.monishguy.mifanscloud.data.note.NoteMarkdown.extractFileIds(body)
+        if (fileIds.isEmpty()) return@LaunchedEffect
+        val images = mutableMapOf<String, ByteArray>()
+        fileIds.forEach { id ->
+            viewModel.fetchNoteImage(id) { bytes ->
+                if (bytes != null && bytes.isNotEmpty()) {
+                    images[id] = bytes
+                    attachmentImages = images.toMap()
+                }
+            }
+        }
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -323,6 +342,32 @@ private fun NoteEditor(
                     label = { Text("正文（Markdown）") },
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
+                // 附件图片展示（![附件 fileId]() → 真实图片）
+                if (attachmentImages.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "附件图片：",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        attachmentImages.forEach { (_, bytes) ->
+                            AsyncImage(
+                                model = bytes,
+                                contentDescription = "附件",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(120.dp)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "正文为 Markdown 格式；「保存」会同步到云端（标题与正文）。",
