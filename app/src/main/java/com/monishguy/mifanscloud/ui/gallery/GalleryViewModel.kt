@@ -497,6 +497,29 @@ class GalleryViewModel(
         }
     }
 
+    /**
+     * 上传一张照片到指定相册（HAR 逆向四步链路，见 [GalleryApi.uploadPhoto]）。
+     * [onProgress] 上报已发送字节；结束后 [onDone] 回调 (是否成功, 错误信息)。
+     */
+    fun uploadPhoto(
+        file: java.io.File,
+        fileName: String,
+        mimeType: String,
+        groupId: String,
+        onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
+        onDone: (Boolean, String?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val result = withContext(ioDispatcher) {
+                runCatching { galleryApi.uploadPhoto(file, fileName, mimeType, groupId, onProgress) }
+            }
+            result.fold(
+                onSuccess = { onDone(true, null) },
+                onFailure = { onDone(false, it.message) },
+            )
+        }
+    }
+
     private fun matchRows(assets: List<RemoteAsset>): List<AssetRow> {
         val local = localMedia()
         val statuses = CloudLocalMatcher.match(assets, local, downloadedStore.ids(GALLERY_NS))

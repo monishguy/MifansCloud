@@ -35,9 +35,74 @@ class NoteApi(
     private val apiClient: XiaomiApiClient,
     baseUrl: String,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** 保存用 serviceToken（form 参数认证，网页端同款）；获取失败返回 null。 */
+    private val serviceTokenProvider: () -> String? = { null },
 ) {
 
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
+
+    /**
+     * 保存笔记到云端（HAR 逆向：POST /note/note/{id}，entry JSON + serviceToken）。
+     * [newTitle] 更新 extraInfo.title；[newBodyMarkdown] 转回富文本 snippet 存 content。
+     * [onDone] 回调 (是否成功, 错误信息)；成功回调新的 tag 版本游标。
+     */
+    fun updateNote(
+        note: RemoteNote,
+        newTitle: String,
+        newBodyMarkdown: String,
+        onDone: (Boolean, String?) -> Unit,
+    ) {
+        val serviceToken = serviceTokenProvider()
+        if (serviceToken == null) {
+            onDone(false, "缺少 serviceToken，无法保存到云端")
+            return
+        }
+        val now = clock()
+        // 保留云端原字段：tag（版本游标）、createDate、folderId、status 等
+        val tag = NoteMarkdown.rawField(note.raw, "tag", note.id)
+        val createDate = NoteMarkdown.rawField(note.raw, "createDate", now.toString())
+        val folderId = note.folderId ?: NoteMarkdown.rawField(note.raw, "folderId", "0")
+        // extraInfo：更新 title（保留其余字段）
+        val extraInfoJson = runCatching { JSONObject(note.extraInfo) }.getOrElse { JSONObject() }
+        extraInfoJson.put("title", newTitle)
+        val entry = JSONObject()
+            .put("id", note.id)
+            .put("tag", tag)
+            .put("status", "normal")
+            .put("createDate", createDate.toLongOrNull() ?: now)
+            .put("modifyDate", now)
+            .put("colorId", NoteMarkdown.rawField(note.raw, "colorId", "0").toLongOrNull() ?: 0L)
+            .put("content", NoteMarkdown.markdownToSnippet(newBodyMarkdown))
+            .put(
+                "setting",
+                JSONObject()
+                    .put("totalSize", 0)
+                    .put("themeId", 0)
+                    .put("stickyTime", 0)
+                    .put("version", 0),
+            )
+            .put("folderId", folderId)
+            .put("alertDate", 0)
+            .put("extraInfo", extraInfoJson.toString())
+
+        val body = okhttp3.FormBody.Builder()
+            .add("entry", entry.toString())
+            .add("serviceToken", serviceToken)
+            .build()
+        val url = baseUrl.newBuilder().addPathSegments("note/note/${note.id}").build()
+        apiClient.execute(okhttp3.Request.Builder().url(url).post(body).build()).use { resp ->
+            if (!resp.isSuccessful) {
+                onDone(false, "保存失败 HTTP ${resp.code}")
+                return
+            }
+            val json = runCatching { JSONObject(resp.body?.string().orEmpty()) }.getOrNull()
+            if (json?.optInt("code", 0) != 0) {
+                onDone(false, json?.optString("description") ?: "保存失败")
+                return
+            }
+            onDone(true, json.optJSONObject("data")?.optString("tag"))
+        }
+    }
 
     fun fetchNotes(limit: Int = 200): NotePage {
         val url = baseUrl.newBuilder()

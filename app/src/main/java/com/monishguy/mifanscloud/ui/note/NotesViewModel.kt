@@ -151,14 +151,48 @@ class NotesViewModel(
     /** 本地编辑后的正文（键：noteId；导出/展示时优先使用）。 */
     private val editedBodies = mutableMapOf<String, String>()
 
-    /** 本地编辑标题/正文：仅更新内存（导出 Markdown 与列表展示生效）。
-     *  云端同步接口未逆向（需抓包 HAR），保存到云端为待实现占位。 */
-    fun saveLocalEdit(noteId: String, newTitle: String, newBody: String) {
-        val current = _state.value as? NotesUiState.Notes ?: return
-        editedBodies[noteId] = newBody
-        _state.value = current.copy(
-            notes = current.notes.map { if (it.id == noteId) it.copy(title = newTitle) else it },
-        )
+    /**
+     * 保存标题/正文到**云端**（HAR 逆向：POST /note/note/{id}）：
+     * 成功更新内存（列表与导出 Markdown 生效）；[onDone] 回调 (是否成功, 提示信息)。
+     */
+    fun saveLocalEdit(
+        note: RemoteNote,
+        newTitle: String,
+        newBody: String,
+        onDone: (Boolean, String?) -> Unit = { _, _ -> },
+    ) {
+        viewModelScope.launch {
+            val result = withContext(ioDispatcher) {
+                var saved = false
+                var message: String? = null
+                var newTag: String? = null
+                noteApi.updateNote(
+                    note = note,
+                    newTitle = newTitle,
+                    newBodyMarkdown = newBody,
+                    onDone = { ok, info ->
+                        saved = ok
+                        newTag = info
+                    },
+                )
+                // updateNote 是同步回调（内部网络），此处已执行完
+                if (saved) {
+                    editedBodies[note.id] = newBody
+                    val current = _state.value as? NotesUiState.Notes
+                    if (current != null) {
+                        _state.value = current.copy(
+                            notes = current.notes.map {
+                                if (it.id == note.id) it.copy(title = newTitle) else it
+                            },
+                        )
+                    }
+                } else {
+                    message = newTag ?: "保存失败"
+                }
+                saved to message
+            }
+            onDone(result.first, result.second)
+        }
     }
 
     /** 展示用正文（编辑过则用编辑内容，否则 snippet 转 Markdown）。 */

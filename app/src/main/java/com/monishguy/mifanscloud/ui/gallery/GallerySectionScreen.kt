@@ -145,16 +145,105 @@ private fun PhotosTab(
     var progress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var notifId by remember { mutableStateOf<Int?>(null) }
 
-    // 上传流程
+    // 上传流程：选图 → 选相册 → 真实上传（进度 + 通知栏）
     var uploadTarget by remember { mutableStateOf<RemoteAlbum?>(null) }
+    var uploadUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var uploadHint by remember { mutableStateOf<String?>(null) }
+    var uploadProgress by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var uploadFileName by remember { mutableStateOf<String?>(null) }
+    var uploadNotifId by remember { mutableStateOf<Int?>(null) }
     val pickMedia = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(20)
     ) { uris ->
         if (uris.isNotEmpty()) {
+            uploadUris = uris
             uploadTarget = (state as? GalleryUiState.Albums)?.albums
                 ?.firstOrNull { !it.isPrivate }
         }
+    }
+
+    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+
+    fun queryDisplayName(uri: android.net.Uri): String? = runCatching {
+        contentResolver.query(
+            uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }.getOrNull()
+
+    /** 递归上传第 [index] 个文件。 */
+    fun uploadNext(index: Int, files: List<Triple<java.io.File, String, String>>, target: RemoteAlbum) {
+        if (index >= files.size) {
+            uploadProgress = null
+            uploadFileName = null
+            val id = uploadNotifId
+            uploadNotifId = null
+            val msg = "已上传 ${files.size} 张照片到「${target.name}」"
+            uploadHint = msg
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            DownloadNotifier.finish(context, id, "上传完成", msg, success = true)
+            viewModel.loadAllPhotos()
+            return
+        }
+        val (file, name, mime) = files[index]
+        val totalBytes = file.length()
+        uploadFileName = name
+        viewModel.uploadPhoto(
+            file = file,
+            fileName = name,
+            mimeType = mime,
+            groupId = target.albumId,
+            onProgress = { sent, _ ->
+                mainHandler.post {
+                    uploadProgress = sent to totalBytes
+                    DownloadNotifier.update(
+                        context, uploadNotifId, "上传照片（${index + 1}/${files.size}）",
+                        "$name ${sent / 1024}KB/${totalBytes / 1024}KB",
+                        (sent / 1024).toInt(), (totalBytes / 1024).toInt().coerceAtLeast(1),
+                    )
+                }
+            },
+            onDone = { ok, error ->
+                file.delete()
+                if (!ok) {
+                    uploadProgress = null
+                    uploadFileName = null
+                    val id = uploadNotifId
+                    uploadNotifId = null
+                    val msg = "上传失败：$name（${error ?: "未知错误"}）"
+                    uploadHint = msg
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    DownloadNotifier.finish(context, id, "上传失败", msg, success = false)
+                    return@uploadPhoto
+                }
+                uploadNext(index + 1, files, target)
+            },
+        )
+    }
+
+    /** 逐个上传：内容 uri → cache 临时文件（后台拷贝）→ 上传四步链路（VM 协程）。 */
+    fun startUpload(target: RemoteAlbum) {
+        val uris = uploadUris
+        if (uris.isEmpty()) return
+        uploadTarget = null
+        uploadHint = null
+        uploadNotifId = DownloadNotifier.start(context, "上传照片", "0/${uris.size}")
+        Thread {
+            val prepared = uris.mapNotNull { uri ->
+                runCatching {
+                    val mime = contentResolver.getType(uri) ?: "image/jpeg"
+                    val ext = mime.substringAfter("image/", "jpg").take(5).ifBlank { "jpg" }
+                    val name = queryDisplayName(uri) ?: "upload_${System.currentTimeMillis()}.$ext"
+                    val f = java.io.File(context.cacheDir, "upload_${System.currentTimeMillis()}_$ext")
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        f.outputStream().use { out -> input.copyTo(out) }
+                    } ?: throw IllegalStateException("无法读取所选文件")
+                    Triple(f, name, mime)
+                }.getOrNull()
+            }
+            mainHandler.post { uploadNext(0, prepared, target) }
+        }.start()
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -249,6 +338,25 @@ private fun PhotosTab(
                             "首次拉取全部照片可能需要 1-2 分钟",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                // 上传进度行
+                if (uploadProgress != null) {
+                    val (sent, total) = uploadProgress!!
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "上传中 ${uploadFileName ?: ""} ${sent / 1024}KB/${total / 1024}KB",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
@@ -419,12 +527,7 @@ private fun PhotosTab(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    val msg = "上传接口尚未逆向（三个参考项目均无上传实现，需要 i.mi.com 网页上传的抓包 HAR），当前版本无法上传"
-                    uploadHint = msg
-                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                    uploadTarget = null
-                }) { Text("确定") }
+                TextButton(onClick = { startUpload(picked) }) { Text("上传 ${uploadUris.size} 张") }
             },
             dismissButton = {
                 TextButton(onClick = { uploadTarget = null }) { Text("取消") }

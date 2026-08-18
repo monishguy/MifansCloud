@@ -72,4 +72,41 @@ object NoteMarkdown {
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&amp;", "&")
+
+    /** 转义为富文本安全字符（& → &amp; 等，顺序不能反）。 */
+    private fun escapeHtml(s: String): String = s
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+
+    /**
+     * Markdown 正文 → 云端富文本 snippet（保存到云端用）：
+     * 每行一个 `<text indent="1">…</text>`，特殊字符 HTML 转义。
+     */
+    fun markdownToSnippet(markdown: String): String {
+        if (markdown.isBlank()) return "<text indent=\"1\"></text>"
+        val lines = markdown.replace("\r\n", "\n").split('\n')
+        val sb = StringBuilder()
+        lines.forEach { raw ->
+            val line = raw.trimEnd()
+            sb.append("<text indent=\"1\">")
+                .append(escapeHtml(line))
+                .append("</text>")
+                .append('\n')
+        }
+        return sb.toString().trimEnd('\n')
+    }
+
+    /** 解析 raw JSON 中的字段（tag / createDate / folderId 等），失败返回默认。 */
+    fun rawField(raw: String, field: String, default: String = ""): String {
+        if (raw.isBlank()) return default
+        return runCatching {
+            val v = JSONObject(raw).opt(field)
+            when (v) {
+                null -> default
+                else -> v.toString()
+            }
+        }.getOrDefault(default)
+    }
 }

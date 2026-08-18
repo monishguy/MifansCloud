@@ -84,6 +84,15 @@ class AppContainer(context: Context) {
     val galleryApi: GalleryApi = GalleryApi(
         apiClient = apiClient,
         baseUrl = BASE_URL,
+        // 上传认证：直连会话直接用 serviceToken；passToken 会话走换取链取当前 token
+        serviceTokenProvider = {
+            when (val credential = credentialStore.load()) {
+                is XiaomiCredential.ServiceToken -> credential.serviceToken
+                is XiaomiCredential.PassToken ->
+                    runCatching { authService.getServiceToken(credential).serviceToken }.getOrNull()
+                null -> null
+            }
+        },
     )
 
     val recordingApi: RecordingApi = RecordingApi(
@@ -93,7 +102,18 @@ class AppContainer(context: Context) {
 
     val contactApi: ContactApi = ContactApi(apiClient, BASE_URL)
 
-    val noteApi: NoteApi = NoteApi(apiClient, BASE_URL)
+    val noteApi: NoteApi = NoteApi(
+        apiClient = apiClient,
+        baseUrl = BASE_URL,
+        serviceTokenProvider = {
+            when (val credential = credentialStore.load()) {
+                is XiaomiCredential.ServiceToken -> credential.serviceToken
+                is XiaomiCredential.PassToken ->
+                    runCatching { authService.getServiceToken(credential).serviceToken }.getOrNull()
+                null -> null
+            }
+        },
+    )
 
     val smsApi: SmsApi = SmsApi(apiClient, BASE_URL)
 

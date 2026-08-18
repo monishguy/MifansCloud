@@ -284,9 +284,14 @@ private fun NoteEditor(
                 },
                 actions = {
                     TextButton(onClick = {
-                        viewModel.saveLocalEdit(note.id, title, body)
-                        savedHint = "已保存到本地（列表与导出生效）"
-                        Toast.makeText(context, "已保存；云端同步接口待逆向（需 HAR）", Toast.LENGTH_LONG).show()
+                        viewModel.saveLocalEdit(note, title, body) { ok, message ->
+                            savedHint = if (ok) "已保存到云端（列表与导出生效）" else (message ?: "保存失败")
+                            Toast.makeText(
+                                context,
+                                if (ok) "已同步到云端" else "保存失败：${message ?: "未知错误"}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
                     }) { Text("保存") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -320,8 +325,7 @@ private fun NoteEditor(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "正文为 Markdown 格式；保存后导出与列表立即生效。" +
-                        "同步回云端需抓取 i.mi.com 网页端保存笔记的 HAR（接口待逆向）。",
+                    "正文为 Markdown 格式；「保存」会同步到云端（标题与正文）。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

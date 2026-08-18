@@ -6,6 +6,7 @@ import com.monishguy.mifanscloud.data.remote.SignedDownloader
 import com.monishguy.mifanscloud.data.remote.XiaomiApiClient
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import org.json.JSONObject
 import java.io.OutputStream
 
@@ -23,6 +24,8 @@ class GalleryApi(
     private val apiClient: XiaomiApiClient,
     baseUrl: String,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** 上传用 serviceToken（form 参数认证，网页端同款）；获取失败返回 null。 */
+    private val serviceTokenProvider: () -> String? = { null },
 ) {
 
     private val baseUrl: HttpUrl = baseUrl.trimEnd('/').toHttpUrl()
@@ -199,7 +202,219 @@ class GalleryApi(
         },
     )
 
+    /**
+     * 上传照片（HAR 逆向的四步链路，网页端同款）：
+     * ① POST /gallery/user/full 预上传（data JSON + serviceToken）→ 拿
+     *    kss(file_meta/block_metas/node_urls) 与新 asset id；
+     * ② POST {node}/upload_block_chunk?chunk_pos=N&&file_meta&block_meta
+     *    逐块上传原始字节 → 每块返回 commit_meta（base64 JSON）；
+     * ③ POST /gallery/user/full/{id}/storage 提交全部 commit_metas → 完成；
+     * ④ POST /gallery/user/lite/index/prepare 刷新索引（尽力而为）。
+     *
+     * 分块由客户端自定：≤[CHUNK_SIZE] 单块，更大按块切（block_infos 逐块
+     * 声明 size/md5/sha1）。[onProgress] 上报已上传字节。
+     * 成功返回新资产 id；失败抛异常。
+     */
+    fun uploadPhoto(
+        file: java.io.File,
+        fileName: String,
+        mimeType: String,
+        groupId: String,
+        onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
+    ): String {
+        val serviceToken = serviceTokenProvider()
+            ?: throw IllegalStateException("缺少 serviceToken，无法上传")
+        val totalSize = file.length()
+        val fileSha1 = digestHex(file, "SHA-1")
+
+        // 分块声明（每块 size/md5/sha1，由客户端自定块大小）
+        val blocks = buildBlocks(file, CHUNK_SIZE)
+        val blockInfos = org.json.JSONArray()
+        blocks.forEach { (start, size) ->
+            blockInfos.put(
+                org.json.JSONObject()
+                    .put("blob", org.json.JSONObject())
+                    .put("size", size)
+                    .put("md5", blockDigestHex(file, start, size, "MD5"))
+                    .put("sha1", blockDigestHex(file, start, size, "SHA-1")),
+            )
+        }
+        val data1 = org.json.JSONObject()
+            .put(
+                "content",
+                org.json.JSONObject()
+                    .put("type", "image")
+                    .put("groupId", groupId)
+                    .put("mimeType", mimeType)
+                    .put("fileName", fileName)
+                    .put("title", fileName.substringBeforeLast('.'))
+                    .put("sha1", fileSha1)
+                    .put("size", totalSize)
+                    .put("dateModified", clock()),
+            )
+            .put("block_infos", blockInfos)
+
+        // ① 预上传
+        val prepareBody = formBody(
+            "data" to data1.toString(),
+            "isClientUploadThumbnail" to "false",
+            "serviceToken" to serviceToken,
+        )
+        val prepared = postJson(baseUrl.newBuilder().addPathSegments("gallery/user/full").build().toString(), prepareBody)
+        val kss = prepared.optJSONObject("data")?.optJSONObject("kss")
+            ?: throw IllegalStateException("预上传响应缺少 kss: ${prepared.optString("description")}")
+        val assetId = prepared.optJSONObject("data")?.optJSONObject("content")?.optString("id")
+            ?: throw IllegalStateException("预上传响应缺少资产 id")
+        val fileMeta = kss.optString("file_meta").takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("预上传响应缺少 file_meta")
+        val blockMetas = kss.optJSONArray("block_metas") ?: org.json.JSONArray()
+        val nodeUrl = kss.optJSONArray("node_urls")?.optString(0) ?: ""
+
+        // ② 逐块上传
+        val commitMetas = org.json.JSONArray()
+        blocks.forEachIndexed { index, (start, size) ->
+            val blockMeta = blockMetas.optJSONObject(index)?.optString("block_meta")
+                ?: throw IllegalStateException("预上传响应缺少第 $index 块 block_meta")
+            if (blockMetas.optJSONObject(index)?.optInt("is_existed", 0) != 1) {
+                val chunkUrl = "$nodeUrl/upload_block_chunk?chunk_pos=$index&&file_meta=${urlEncode(fileMeta)}&block_meta=${urlEncode(blockMeta)}"
+                val chunkBody = readBlock(file, start, size)
+                val resp = postBytes(chunkUrl, chunkBody)
+                // 分片响应为 base64 编码的 JSON（服务端返回），先解码再解析
+                val respJson = try {
+                    JSONObject(resp)
+                } catch (e: org.json.JSONException) {
+                    val raw = decodeBase64(resp) ?: throw IllegalStateException("分片上传响应无法解析")
+                    JSONObject(raw)
+                }
+                val commitMeta = respJson.optString("commit_meta")
+                    ?: throw IllegalStateException("第 $index 块上传响应缺少 commit_meta")
+                commitMetas.put(org.json.JSONObject().put("commit_meta", commitMeta))
+            }
+            onProgress(((index + 1).toLong()) * size, totalSize)
+        }
+
+        // ③ 完成注册
+        val storageData = org.json.JSONObject()
+            .put(
+                "kss",
+                org.json.JSONObject()
+                    .put("file_meta", fileMeta)
+                    .put("commit_metas", commitMetas),
+            )
+        val storageBody = formBody(
+            "data" to storageData.toString(),
+            "serviceToken" to serviceToken,
+        )
+        val storageUrl = baseUrl.newBuilder()
+            .addPathSegments("gallery/user/full/$assetId/storage")
+            .build()
+        postJson(storageUrl.toString(), storageBody)
+
+        // ④ 刷新索引（尽力而为，失败忽略）
+        runCatching {
+            postJson(
+                baseUrl.newBuilder().addPathSegments("gallery/user/lite/index/prepare").build().toString(),
+                formBody("serviceToken" to serviceToken),
+            )
+        }
+        return assetId
+    }
+
+    private fun postJson(url: String, body: okhttp3.RequestBody): JSONObject =
+        apiClient.execute(okhttp3.Request.Builder().url(url).post(body).build()).use { resp ->
+            if (!resp.isSuccessful) throw IllegalStateException("请求失败 HTTP ${resp.code}: $url")
+            val text = resp.body?.string().orEmpty()
+            val json = JSONObject(text)
+            if (json.optInt("code", 0) != 0 && json.optString("result", "ok") != "ok") {
+                throw IllegalStateException("接口错误: ${json.optString("description")}")
+            }
+            json
+        }
+
+    private fun postBytes(url: String, bytes: ByteArray): String =
+        apiClient.execute(
+            okhttp3.Request.Builder()
+                .url(url)
+                .post(bytes.toRequestBody("application/octet-stream".toMediaType()))
+                .build(),
+        ).use { resp ->
+            if (!resp.isSuccessful) throw IllegalStateException("分片上传失败 HTTP ${resp.code}")
+            resp.body?.string().orEmpty()
+        }
+
+    private fun formBody(vararg pairs: Pair<String, String>): okhttp3.FormBody =
+        okhttp3.FormBody.Builder().apply { pairs.forEach { (k, v) -> add(k, v) } }.build()
+
+    /** 文件分块：返回 [(start, size)]。 */
+    private fun buildBlocks(file: java.io.File, chunkSize: Int): List<Pair<Long, Int>> {
+        val total = file.length()
+        if (total <= chunkSize) return listOf(0L to total.toInt())
+        val blocks = mutableListOf<Pair<Long, Int>>()
+        var offset = 0L
+        while (offset < total) {
+            val size = minOf(chunkSize.toLong(), total - offset).toInt()
+            blocks += offset to size
+            offset += size
+        }
+        return blocks
+    }
+
+    private fun readBlock(file: java.io.File, start: Long, size: Int): ByteArray =
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            raf.seek(start)
+            val buf = ByteArray(size)
+            raf.readFully(buf)
+            buf
+        }
+
+    private fun blockDigestHex(file: java.io.File, start: Long, size: Int, algorithm: String): String =
+        java.security.MessageDigest.getInstance(algorithm).let { digest ->
+            java.io.RandomAccessFile(file, "r").use { raf ->
+                raf.seek(start)
+                val buf = ByteArray(64 * 1024)
+                var remaining = size
+                while (remaining > 0) {
+                    val n = raf.read(buf, 0, minOf(buf.size, remaining))
+                    if (n < 0) break
+                    digest.update(buf, 0, n)
+                    remaining -= n
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+    private fun digestHex(file: java.io.File, algorithm: String): String =
+        java.security.MessageDigest.getInstance(algorithm).let { digest ->
+            file.inputStream().use { input ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    digest.update(buf, 0, n)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+    private fun urlEncode(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+
+    /** 解码 base64（标准与 URL-safe 兼容），失败返回 null。 */
+    private fun decodeBase64(s: String): String? = runCatching {
+        val bytes = try {
+            java.util.Base64.getDecoder().decode(s)
+        } catch (e: IllegalArgumentException) {
+            java.util.Base64.getUrlDecoder().decode(s)
+        }
+        String(bytes, Charsets.UTF_8)
+    }.getOrNull()
+
+    private fun ByteArray.toRequestBody(mediaType: okhttp3.MediaType): okhttp3.RequestBody =
+        okhttp3.RequestBody.create(mediaType, this)
+
     private companion object {
         const val PRIVATE_ALBUM_ID = "1000"
+
+        /** 上传分块大小：4 MiB。 */
+        const val CHUNK_SIZE = 4 * 1024 * 1024
     }
 }

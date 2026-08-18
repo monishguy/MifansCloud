@@ -40,12 +40,71 @@ class GalleryApiTest {
             apiClient = apiClient,
             baseUrl = server.url("/").toString().removeSuffix("/"),
             clock = { 1_234_567_890L },
+            serviceTokenProvider = { "st_upload" },
         )
     }
 
     @After
     fun tearDown() {
         server.shutdown()
+    }
+
+    @Test
+    fun `上传照片走四步链路：预上传分片上传完成注册索引刷新`() {
+        // ① 预上传
+        server.enqueue(
+            MockResponse().setBody(
+                """{"result":"ok","code":0,"data":{"kss":{"upload_id":"u1",
+                    "block_metas":[{"is_existed":0,"block_meta":"bm1"}],
+                    "node_urls":["${server.url("/2/1566455553514").toString().removeSuffix("/")}"],
+                    "file_meta":"fm1"},
+                    "content":{"id":"new123","status":"temp"}},"description":"成功"}"""
+            )
+        )
+        // ② 分片上传（单块）
+        server.enqueue(
+            MockResponse().setBody(
+                "eyJzdGF0IjoiQkxPQ0tfQ09NUExFVEVEIiwiY29tbWl0X21ldGEiOiJjbTEifQ=="
+            )
+        )
+        // ③ 完成注册
+        server.enqueue(
+            MockResponse().setBody(
+                """{"result":"ok","code":0,"data":{"content":{"id":"new123","status":"custom"}},"description":"成功"}"""
+            )
+        )
+        // ④ 索引刷新
+        server.enqueue(
+            MockResponse().setBody(
+                """{"result":"ok","code":0,"data":{"status":"ready"},"description":"成功"}"""
+            )
+        )
+
+        val file = File.createTempFile("upd", ".png").apply { writeBytes(ByteArray(64) { 1 }) }
+        val progress = mutableListOf<Pair<Long, Long>>()
+        val assetId = api.uploadPhoto(
+            file = file,
+            fileName = "测试.png",
+            mimeType = "image/png",
+            groupId = "g1",
+            onProgress = { s, t -> progress += s to t },
+        )
+
+        assertEquals("new123", assetId)
+        assertTrue(progress.isNotEmpty())
+        assertTrue(progress.last().first == file.length())
+
+        // 请求顺序校验
+        val r1 = server.takeRequest()
+        assertEquals("/gallery/user/full", r1.path?.substringBefore("?"))
+        assertTrue("预上传应携带 serviceToken", r1.body.readUtf8().contains("st_upload"))
+        val r2 = server.takeRequest()
+        assertTrue("分片上传路径应含 upload_block_chunk", r2.path?.startsWith("/2/1566455553514/upload_block_chunk") == true)
+        assertTrue("分片上传应为原始字节流", r2.body.readUtf8().isNotEmpty())
+        val r3 = server.takeRequest()
+        assertEquals("/gallery/user/full/new123/storage", r3.path?.substringBefore("?"))
+        val r4 = server.takeRequest()
+        assertEquals("/gallery/user/lite/index/prepare", r4.path?.substringBefore("?"))
     }
 
     @Test
