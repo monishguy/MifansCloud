@@ -36,9 +36,8 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun 米饭云服务Theme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // 固定 scheme（不依赖动态色）：第三方 ROM 的动态色桥接可能异常
-    // （深色下黑底黑字），固定深/浅色保证 onSurface 始终为可读对比色
-    dynamicColor: Boolean = false,
+    // 动态取色（Material You）：跟随系统壁纸，Android 12+ 生效
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

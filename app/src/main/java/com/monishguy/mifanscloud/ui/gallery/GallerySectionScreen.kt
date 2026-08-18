@@ -442,6 +442,12 @@ private fun AlbumsTab(
     val state by viewModel.state.collectAsState()
     var privatePassword by remember { mutableStateOf<RemoteAlbum?>(null) }
     var password by remember { mutableStateOf("") }
+    // 本地快照：照片页加载完成会覆盖共享 state，相册 tab 必须保留自己的列表
+    var albumsSnapshot by remember { mutableStateOf<List<RemoteAlbum>?>(null) }
+    if (state is GalleryUiState.Albums) {
+        albumsSnapshot = (state as GalleryUiState.Albums).albums
+    }
+    val albums = albumsSnapshot
 
     // 切到相册 tab：有内存缓存直接显示，不发网络
     LaunchedEffect(Unit) { viewModel.ensureAlbums() }
@@ -450,13 +456,13 @@ private fun AlbumsTab(
         Text("云端相册 · 按名称排序", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
 
-        when (val s = state) {
-            is GalleryUiState.Albums -> LazyVerticalGrid(
+        when {
+            albums != null -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 160.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(s.albums) { album ->
+                items(albums) { album ->
                     AlbumCard(album = album, onClick = {
                         if (album.isPrivate) {
                             password = ""
@@ -468,22 +474,25 @@ private fun AlbumsTab(
                 }
             }
 
-            GalleryUiState.Loading, GalleryUiState.Idle -> Box(
+            state is GalleryUiState.Loading || state is GalleryUiState.Idle -> Box(
                 Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator() }
 
-            is GalleryUiState.Error -> Column(
+            state is GalleryUiState.Error -> Column(
                 Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(s.message, color = MaterialTheme.colorScheme.error)
+                Text((state as GalleryUiState.Error).message, color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = { viewModel.loadAlbums() }) { Text("重试") }
             }
 
-            else -> Unit
+            else -> Box(
+                Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator() }
         }
     }
 

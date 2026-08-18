@@ -191,6 +191,7 @@ fun RecordingsScreen(
 
                     is RecordingUiState.Recordings -> LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f),
                     ) {
                         items(s.recordings, key = { it.recording.id }) { row ->
                             val selected = row.recording.id in selection

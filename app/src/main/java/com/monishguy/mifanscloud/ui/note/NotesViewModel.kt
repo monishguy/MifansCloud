@@ -125,7 +125,7 @@ class NotesViewModel(
                         }
                         val body = buildString {
                             append("# ").append(title).append("\n\n")
-                            append(NoteMarkdown.snippetToMarkdown(note.snippet))
+                            append(displayBody(note))
                             append("\n\n---\n")
                             append("修改时间: ").append(SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(note.modifyDate)))
                             append("\n")
@@ -147,6 +147,27 @@ class NotesViewModel(
     /** Markdown 文件名清洗：去掉路径分隔符与非法字符，限制长度。 */
     private fun sanitizeMarkdownFileName(name: String): String =
         name.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_").trim('_').take(40).ifBlank { "note" }
+
+    /** 本地编辑后的正文（键：noteId；导出/展示时优先使用）。 */
+    private val editedBodies = mutableMapOf<String, String>()
+
+    /** 本地编辑标题/正文：仅更新内存（导出 Markdown 与列表展示生效）。
+     *  云端同步接口未逆向（需抓包 HAR），保存到云端为待实现占位。 */
+    fun saveLocalEdit(noteId: String, newTitle: String, newBody: String) {
+        val current = _state.value as? NotesUiState.Notes ?: return
+        editedBodies[noteId] = newBody
+        _state.value = current.copy(
+            notes = current.notes.map { if (it.id == noteId) it.copy(title = newTitle) else it },
+        )
+    }
+
+    /** 展示用正文（编辑过则用编辑内容，否则 snippet 转 Markdown）。 */
+    fun displayBody(note: RemoteNote): String =
+        editedBodies[note.id] ?: NoteMarkdown.snippetToMarkdown(note.snippet)
+
+    /** 列表摘要（转 Markdown 纯文本，不露原始 XML/JSON 标记）。 */
+    fun displaySnippet(note: RemoteNote): String =
+        displayBody(note).take(120)
 
     /** AppContainer 装配工厂。 */
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {

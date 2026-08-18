@@ -197,7 +197,9 @@ fun ContactsScreen(
                         Button(onClick = { viewModel.load() }) { Text("重试") }
                     }
 
-                    is ContactsUiState.Contacts -> LazyColumn {
+                    is ContactsUiState.Contacts -> LazyColumn(
+                        modifier = Modifier.weight(1f),
+                    ) {
                         items(s.contacts, key = { it.id }) { contact ->
                             val selected = contact.id in selection
                             Card(
