@@ -98,9 +98,12 @@ class NotesViewModel(
      */
     fun exportMarkdown(
         outputProvider: (fileName: String) -> OutputStream?,
+        ids: Set<String>? = null,
         onDone: (Int, String?) -> Unit,
     ) {
-        val notes = (_state.value as? NotesUiState.Notes)?.notes.orEmpty()
+        val notes = (_state.value as? NotesUiState.Notes)?.notes
+            ?.filter { ids == null || it.id in ids }
+            .orEmpty()
         if (notes.isEmpty()) {
             onDone(0, "笔记列表为空")
             return

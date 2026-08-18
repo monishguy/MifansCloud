@@ -59,9 +59,11 @@ class ContactsViewModel(
         }
     }
 
-    /** 导出为 JSON 到 [outputProvider]（联系人目录）。 */
-    fun exportJson(outputProvider: (String) -> OutputStream) {
-        val contacts = (_state.value as? ContactsUiState.Contacts)?.contacts ?: return
+    /** 导出为 JSON 到 [outputProvider]（联系人目录）；[ids] 非空时仅导出所选。 */
+    fun exportJson(outputProvider: (String) -> OutputStream, ids: Set<String>? = null) {
+        val contacts = (_state.value as? ContactsUiState.Contacts)?.contacts
+            ?.filter { ids == null || it.id in ids }
+            .orEmpty()
         val arr = JSONArray()
         contacts.forEach { c ->
             val phones = JSONArray()
@@ -84,11 +86,13 @@ class ContactsViewModel(
 
     /**
      * 云端通讯录 → 本机系统通讯录（ContactsContract 批量插入，无账号）。
-     * 分批提交（每批 ≤100 联系人，规避 applyBatch 500 op 上限）；
+     * [ids] 非空时仅导入所选；分批提交（每批 ≤100 联系人，规避 applyBatch 500 op 上限）；
      * [onDone] 回调 (成功条数, 错误信息)。
      */
-    fun importToDevice(context: android.content.Context, onDone: (Int, String?) -> Unit) {
-        val contacts = (_state.value as? ContactsUiState.Contacts)?.contacts.orEmpty()
+    fun importToDevice(context: android.content.Context, ids: Set<String>? = null, onDone: (Int, String?) -> Unit) {
+        val contacts = (_state.value as? ContactsUiState.Contacts)?.contacts
+            ?.filter { ids == null || it.id in ids }
+            .orEmpty()
         if (contacts.isEmpty()) {
             onDone(0, "云端通讯录为空")
             return

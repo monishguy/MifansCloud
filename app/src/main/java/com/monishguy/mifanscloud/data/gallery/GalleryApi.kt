@@ -97,6 +97,42 @@ class GalleryApi(
         return result
     }
 
+    /**
+     * 拉取**全部照片单页**（网页「照片」视图同款接口：**不带 albumId**，
+     * 按时间线分页，不经过相册列表逐个拉取）。
+     * @return (本页资产, 是否最后一页)
+     */
+    fun fetchAllPhotosPage(pageNum: Int): Pair<List<RemoteAsset>, Boolean> {
+        val url = baseUrl.newBuilder()
+            .addPathSegments("gallery/user/galleries")
+            .addQueryParameter("ts", clock().toString())
+            .addQueryParameter("pageNum", pageNum.toString())
+            .addQueryParameter("pageSize", "200")
+            .build()
+        val data = getData(url.toString())
+        val galleries = data.optJSONArray("galleries")
+        val page = mutableListOf<RemoteAsset>()
+        for (i in 0 until (galleries?.length() ?: 0)) {
+            page += parseAsset(galleries!!.getJSONObject(i))
+        }
+        return page to data.optBoolean("isLastPage")
+    }
+
+    /**
+     * 拉取全部照片（直连接口分页循环；不支持时抛异常由调用方回退）。
+     */
+    fun fetchAllPhotos(): List<RemoteAsset> {
+        val result = mutableListOf<RemoteAsset>()
+        var pageNum = 0
+        while (true) {
+            val (page, isLast) = fetchAllPhotosPage(pageNum)
+            result += page
+            if (isLast) break
+            pageNum++
+        }
+        return result
+    }
+
     /** 相册时间线：indexHash（内容指纹）+ dayCount（每日数量），增量同步依据。 */
     fun fetchTimeline(albumId: String): AlbumTimeline {
         val url = baseUrl.newBuilder()

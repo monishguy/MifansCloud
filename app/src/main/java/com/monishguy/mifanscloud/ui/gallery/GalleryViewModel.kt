@@ -208,12 +208,53 @@ class GalleryViewModel(
     }
 
     /**
-     * 拉取全部照片：**渐进式加载**——每拉完一个相册立即更新页面
-     * （顶部实时进度文案，照片边拉边显示，绝不空白）。
-     * 单个相册失败自动重试 3 次（503 限流常见），相册间 400ms 节流；
-     * 仍失败的记录 [GalleryUiState.Photos.failedAlbumIds] 供「重试失败项」。
+     * 拉取全部照片：优先**直连全量接口**（不带 albumId 的时间线分页，
+     * 网页「照片」视图同款——不经过相册列表逐个拉，规避逐相册限流）。
+     * 渐进式：每页更新进度，照片边拉边显示。直连接口失败时回退逐相册拉取。
      */
     fun loadAllPhotos() {
+        viewModelScope.launch {
+            val existing = photosCache ?: (_state.value as? GalleryUiState.Photos)?.assets.orEmpty()
+            _state.value = GalleryUiState.Photos(existing, loading = true, progressText = "正在加载全部照片…")
+
+            val direct = withContext(ioDispatcher) {
+                runCatching {
+                    val all = mutableListOf<RemoteAsset>()
+                    var pageNum = 0
+                    while (true) {
+                        val (page, isLast) = galleryApi.fetchAllPhotosPage(pageNum)
+                        all += page
+                        if (all.isNotEmpty()) {
+                            val rows = matchRows(all)
+                            photosCache = rows
+                            _state.value = GalleryUiState.Photos(
+                                assets = rows,
+                                loading = true,
+                                progressText = "正在加载 第 ${pageNum + 1} 页 · 已获取 ${all.size} 张",
+                            )
+                        }
+                        if (isLast) break
+                        pageNum++
+                        delay(200)
+                    }
+                    all
+                }
+            }
+
+            direct.fold(
+                onSuccess = { all ->
+                    val rows = matchRows(all)
+                    photosCache = rows
+                    _state.value = GalleryUiState.Photos(rows, loading = false)
+                    withContext(ioDispatcher) { metadataCache?.saveAllPhotos(all) }
+                },
+                onFailure = { loadAllPhotosPerAlbum() },
+            )
+        }
+    }
+
+    /** 回退方案：逐个相册拉取合并（直连接口不可用时）。 */
+    private fun loadAllPhotosPerAlbum() {
         viewModelScope.launch {
             val existing = photosCache ?: (_state.value as? GalleryUiState.Photos)?.assets.orEmpty()
             _state.value = GalleryUiState.Photos(existing, loading = true, progressText = "正在加载相册列表…")
@@ -222,14 +263,13 @@ class GalleryViewModel(
                 runCatching { fetchAlbumsWithRetry() }.getOrNull()
             }
             if (albums == null) {
-                // 相册列表都拉不到：回退缓存或明确报错
                 val cached = photosCache ?: withContext(ioDispatcher) { metadataCache?.loadAllPhotos() }
                     ?.let { matchRows(it) }
                 if (cached != null) {
                     photosCache = cached
                     _state.value = GalleryUiState.Photos(cached, loading = false, stale = true)
                 } else {
-                    _state.value = GalleryUiState.Error("拉取相册列表失败（网络或限流）")
+                    _state.value = GalleryUiState.Error("拉取照片失败（直连接口与相册列表均不可用）")
                 }
                 return@launch
             }
@@ -254,7 +294,6 @@ class GalleryViewModel(
                     failed++
                     failedIds += album.albumId
                 }
-                // 每相册后渐进更新：照片边拉边显示 + 实时进度
                 val rows = matchRows(all)
                 photosCache = rows
                 val last = index == normal.size - 1

@@ -96,6 +96,35 @@ class RecordingsViewModel(
         }
     }
 
+    /**
+     * 批量顺序下载（长按多选后调用）：逐条下载并局部更新，
+     * [onProgress] 汇报 done/total，结束后 [onCompleted] 回调成功数。
+     */
+    fun downloadMany(
+        recordings: List<RemoteRecording>,
+        outputProvider: (RemoteRecording) -> OutputStream?,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onCompleted: (Int) -> Unit,
+    ) {
+        viewModelScope.launch {
+            var okCount = 0
+            recordings.forEachIndexed { index, r ->
+                updateRow(r.id) { it.copy(downloading = true) }
+                val ok = withContext(ioDispatcher) {
+                    val out = outputProvider(r) ?: return@withContext false
+                    runCatching { out.use { api.download(r.id, it) } }.getOrDefault(false)
+                }
+                if (ok) {
+                    downloadedStore.add(RECORDING_NS, r.id, r.fileName)
+                    okCount++
+                }
+                updateRow(r.id) { it.copy(downloading = false, downloaded = ok) }
+                onProgress(index + 1, recordings.size)
+            }
+            onCompleted(okCount)
+        }
+    }
+
     private fun updateRow(recordingId: String, transform: (RecordingRow) -> RecordingRow) {
         val current = _state.value as? RecordingUiState.Recordings ?: return
         _state.value = current.copy(

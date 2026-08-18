@@ -187,6 +187,8 @@ class GalleryViewModelTest {
     @Test
     fun `全部照片合并各相册并按新旧降序、排除私密相册`() = runTest {
         withMainDispatcher {
+            // 0) 直连全量接口（不带 albumId）返回 503 → 触发回退逐相册合并
+            server.enqueue(MockResponse().setResponseCode(503))
             // 1) 相册列表：相册 1、相册 2、私密相册 1000
             server.enqueue(
                 MockResponse().setBody(
