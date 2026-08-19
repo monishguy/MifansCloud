@@ -1,0 +1,151 @@
+package com.monishguy.mifanscloud.ui.recording
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.monishguy.mifanscloud.AppContainer
+import com.monishguy.mifanscloud.data.recording.RecordingApi
+import com.monishguy.mifanscloud.data.recording.RemoteRecording
+import com.monishguy.mifanscloud.data.sync.DownloadedStore
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.OutputStream
+
+/** 录音模块 UI 状态。 */
+sealed interface RecordingUiState {
+    data object Idle : RecordingUiState
+    data object Loading : RecordingUiState
+
+    data class Recordings(val recordings: List<RecordingRow>) : RecordingUiState
+
+    data class Error(val message: String) : RecordingUiState
+}
+
+/** 录音行：云端条目 + 下载状态。 */
+data class RecordingRow(
+    val recording: RemoteRecording,
+    val downloading: Boolean = false,
+    val downloaded: Boolean = false,
+)
+
+/**
+ * 录音同步 ViewModel：列表 → 按需下载（命名空间 recording）。
+ */
+class RecordingsViewModel(
+    private val api: RecordingApi,
+    private val downloadedStore: DownloadedStore,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** 板块缓存代际：清除凭证后变化，缓存失效需重载。 */
+    private val cacheVersion: () -> Int = { 0 },
+) : ViewModel() {
+
+    private val _state = MutableStateFlow<RecordingUiState>(RecordingUiState.Idle)
+    val state: StateFlow<RecordingUiState> = _state.asStateFlow()
+
+    @Volatile
+    private var loadedGeneration: Int? = null
+
+    /** 首次进入（或凭证清除后）才加载，其余复用缓存。 */
+    fun loadOnce() {
+        val generation = cacheVersion()
+        if (loadedGeneration == generation) return
+        loadedGeneration = generation
+        load()
+    }
+
+    /** 拉取云端录音列表（元数据，不下载文件），已下载条目标记 downloaded。 */
+    fun load() {
+        viewModelScope.launch {
+            _state.value = RecordingUiState.Loading
+            _state.value = withContext(ioDispatcher) {
+                runCatching {
+                    api.fetchRecordings() to downloadedStore.ids(RECORDING_NS)
+                }
+            }.fold(
+                onSuccess = { (list, downloadedIds) ->
+                    RecordingUiState.Recordings(
+                        list.map { RecordingRow(it, downloaded = it.id in downloadedIds) },
+                    )
+                },
+                onFailure = { RecordingUiState.Error(it.message ?: "拉取录音失败") },
+            )
+        }
+    }
+
+    /**
+     * 按需下载一条录音；成功后**仅更新该行**（不整表刷新），
+     * 并回调 [onCompleted]（UI 用于提示/通知）。
+     */
+    fun download(recording: RemoteRecording, outputProvider: () -> OutputStream, onCompleted: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            updateRow(recording.id) { it.copy(downloading = true) }
+            val ok = withContext(ioDispatcher) {
+                runCatching {
+                    outputProvider().use { out -> api.download(recording.id, out) }
+                }.getOrDefault(false)
+            }
+            if (ok) downloadedStore.add(RECORDING_NS, recording.id, recording.fileName)
+            // 局部更新：只改这一行，不重新拉列表
+            updateRow(recording.id) { it.copy(downloading = false, downloaded = ok) }
+            onCompleted(ok)
+        }
+    }
+
+    /**
+     * 批量顺序下载（长按多选后调用）：逐条下载并局部更新，
+     * [onProgress] 汇报 done/total，结束后 [onCompleted] 回调成功数。
+     */
+    fun downloadMany(
+        recordings: List<RemoteRecording>,
+        outputProvider: (RemoteRecording) -> OutputStream?,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onCompleted: (Int) -> Unit,
+    ) {
+        viewModelScope.launch {
+            var okCount = 0
+            recordings.forEachIndexed { index, r ->
+                updateRow(r.id) { it.copy(downloading = true) }
+                val ok = withContext(ioDispatcher) {
+                    val out = outputProvider(r) ?: return@withContext false
+                    runCatching { out.use { api.download(r.id, it) } }.getOrDefault(false)
+                }
+                if (ok) {
+                    downloadedStore.add(RECORDING_NS, r.id, r.fileName)
+                    okCount++
+                }
+                updateRow(r.id) { it.copy(downloading = false, downloaded = ok) }
+                onProgress(index + 1, recordings.size)
+            }
+            onCompleted(okCount)
+        }
+    }
+
+    private fun updateRow(recordingId: String, transform: (RecordingRow) -> RecordingRow) {
+        val current = _state.value as? RecordingUiState.Recordings ?: return
+        _state.value = current.copy(
+            recordings = current.recordings.map {
+                if (it.recording.id == recordingId) transform(it) else it
+            },
+        )
+    }
+
+    /** AppContainer 装配工厂。 */
+    class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            RecordingsViewModel(
+                api = container.recordingApi,
+                downloadedStore = container.downloadedStore,
+                cacheVersion = container.cacheVersion,
+            ) as T
+    }
+
+    private companion object {
+        const val RECORDING_NS = "recording"
+    }
+}

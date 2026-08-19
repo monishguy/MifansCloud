@@ -1,0 +1,50 @@
+===== POST https://i.mi.com/note/note/51127702462678816
+  :authority: i.mi.com
+  :method: POST
+  :path: /note/note/51127702462678816
+  :scheme: https
+  accept: */*
+  accept-encoding: gzip, deflate, br, zstd
+  accept-language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6
+  content-length: 1432
+  content-type: application/x-www-form-urlencoded; charset=UTF-8
+  origin: https://i.mi.com
+  priority: u=1, i
+  referer: https://i.mi.com/note/h5
+  sec-ch-ua: "Not)A;Brand";v="8", "Chromium";v="138", "Microsoft Edge";v="138"
+  sec-ch-ua-mobile: ?1
+  sec-ch-ua-platform: "Android"
+  sec-fetch-dest: empty
+  sec-fetch-mode: cors
+  sec-fetch-site: same-origin
+  user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36 Edg/138.0.0.0
+--- POST DATA:
+entry=%7B%22id%22%3A%2251127702462678816%22%2C%22tag%22%3A%2251127702462678816%22%2C%22status%22%3A%22normal%22%2C%22createDate%22%3A1784861715424%2C%22modifyDate%22%3A1787030146517%2C%22colorId%22%3A0%2C%22content%22%3A%22%3Ctext%20indent%3D%5C%221%5C%22%3Eipb_member_id%3A%208325528%3C%2Ftext%3E%5Cn%3Ctext%20indent%3D%5C%221%5C%22%3Eipb_pass_hash%3A%2094d02a201b1a5c4e68cec804739c8b9a%3C%2Ftext%3E%5Cn%3Ctext%20indent%3D%5C%221%5C%22%3Eigneous%3A%20null%3C%2Ftext%3E%5Cn%3Ctext%20indent%3D%5C%221%5C%22%3E%3C%2Ftext%3E%5Cn%3Ctext%20indent%3D%5C%221%5C%22%3Ete%3C%2Ftext%3E%22%2C%22setting%22%3A%7B%22totalSize%22%3A0%2C%22themeId%22%3A0%2C%22stickyTime%22%3A0%2C%22version%22%3A0%7D%2C%22folderId%22%3A%220%22%2C%22alertDate%22%3A0%2C%22extraInfo%22%3A%22%7B%5C%22note_content_type%5C%22%3A%5C%22common%5C%22%2C%5C%22web_images%5C%22%3A%5C%22%5C%22%2C%5C%22mind_content_plain_text%5C%22%3A%5C%22%5C%22%2C%5C%22title%5C%22%3A%5C%22eh%5C%22%2C%5C%22mind_content%5C%22%3A%5C%22%5C%22%7D%22%7D&serviceToken=jNa2f6UlbQ0iiMIayebNzTbCqhllqzu8jQKpwxJPg1xA7Nl8MO2MX9rQq%2BgKlcAwM%2F%2BUuE7rIW2SC3jTA96jgdAwlYHw4aiMLsMJeU52KQlXr%2BCynsuJmauS%2F6XwiNxahY8ghnUepzt94MmrVTdnXuxJfcTlyTjvaZYElEyBqovV1DR0DPKbQR8NcNpTY9ParfIhitHzKebgWFe8E20AubSyR24Ln2IrLeq4V6RjUKdR9161S8x1OlXCNwTRNLRvdqFBfEo5wdS5S3ZrHkukPMSZD3SofIHsxrKanpXeqkuHUP994I9hkPYAh9WcMg2lr2lnK9BogCR3QErpM6rhZPsMeG1qdoYpaJltgB7Vaftv94j4em1n6C%2BOwhlbW7EYrJt%2BJHLCnXjbktWqnTzoUg%3D%3D
+--- RESPONSE 200:
+{"result":"ok","retriable":false,"code":0,"data":{"modifyDate":1787030146517,"id":"51127702462678816","tag":"51411922677941121","conflict":false},"description":"成功","ts":1787030146024}
+
+===== POST https://i.mi.com/note/note/51127702462678816
+  :authority: i.mi.com
+  :method: POST
+  :path: /note/note/51127702462678816
+  :scheme: https
+  accept: */*
+  accept-encoding: gzip, deflate, br, zstd
+  accept-language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6
+  content-length: 1434
+  content-type: application/x-www-form-urlencoded; charset=UTF-8
+  origin: https://i.mi.com
+  priority: u=1, i
+  referer: https://i.mi.com/note/h5
+  sec-ch-ua: "Not)A;Brand";v="8", "Chromium";v="138", "Microsoft Edge";v="138"
+  sec-ch-ua-mobile: ?1
+  sec-ch-ua-platform: "Android"
+  sec-fetch-dest: empty
+  sec-fetch-mode: cors
+  sec-fetch-site: same-origin
+  user-agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36 Edg/138.0.0.0
+--- POST DATA:
+entry=%7B%22id%22%3A%2251127702462678816%22%2C%22tag%22%3A%2251411922677941121%22%2C%22status%22%3A%22normal%22%2C%22createDate%22%3A1784861715424%2C%22modifyDate%22%3A1787030148796%2C%22colorId%22%3A0%2C%22content%22%3A%22%3Ctext%20indent%3D%5C%221%5C%22%3Eipb_member_id%3A%208325528%3C%2Ftext%3E%5Cn%3Ctext%20indent%3D%5C%221%5C%22%3Eipb_pass_hash%3A%2094d02a201b1a5c4e68cec804739c8b9a%3C%2Ftext%3E%5Cn%3Ctext%20indent%3D%5C%221%5C%22%3Eigneous%3A%20null%3C%2Ftext%3E%5Cn%3Ctext%20indent%3D%5C%221%5C%22%3E%3C%2Ftext%3E%5Cn%3Ctext%20indent%3D%5C%221%5C%22%3Etest%3C%2Ftext%3E%22%2C%22setting%22%3A%7B%22totalSize%22%3A0%2C%22themeId%22%3A0%2C%22stickyTime%22%3A0%2C%22version%22%3A0%7D%2C%22folderId%22%3A%220%22%2C%22alertDate%22%3A0%2C%22extraInfo%22%3A%22%7B%5C%22note_content_type%5C%22%3A%5C%22common%5C%22%2C%5C%22web_images%5C%22%3A%5C%22%5C%22%2C%5C%22mind_content_plain_text%5C%22%3A%5C%22%5C%22%2C%5C%22title%5C%22%3A%5C%22eh%5C%22%2C%5C%22mind_content%5C%22%3A%5C%22%5C%22%7D%22%7D&serviceToken=jNa2f6UlbQ0iiMIayebNzTbCqhllqzu8jQKpwxJPg1xA7Nl8MO2MX9rQq%2BgKlcAwM%2F%2BUuE7rIW2SC3jTA96jgdAwlYHw4aiMLsMJeU52KQlXr%2BCynsuJmauS%2F6XwiNxahY8ghnUepzt94MmrVTdnXuxJfcTlyTjvaZYElEyBqovV1DR0DPKbQR8NcNpTY9ParfIhitHzKebgWFe8E20AubSyR24Ln2IrLeq4V6RjUKdR9161S8x1OlXCNwTRNLRvdqFBfEo5wdS5S3ZrHkukPMSZD3SofIHsxrKanpXeqkuHUP994I9hkPYAh9WcMg2lr2lnK9BogCR3QErpM6rhZPsMeG1qdoYpaJltgB7Vaftv94j4em1n6C%2BOwhlbW7EYrJt%2BJHLCnXjbktWqnTzoUg%3D%3D
+--- RESPONSE 200:
+{"result":"ok","retriable":false,"code":0,"data":{"modifyDate":1787030148796,"id":"51127702462678816","tag":"51411922977177888","conflict":false},"description":"成功","ts":1787030148310}
+
